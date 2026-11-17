@@ -1,0 +1,665 @@
+// PG Platform data model.
+// Rules: money is integer paise (Int), no hard deletes (status fields),
+// bed occupancy is DERIVED from bookings + tenancies (never stored on Bed).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  OWNER
+  TENANT
+  STAFF
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  DEACTIVATED
+}
+
+enum RecordStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum KycStatus {
+  NOT_SUBMITTED
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum BookingStatus {
+  RESERVED // token not yet paid; expires at holdUntil
+  PAID // token paid; waiting for owner confirmation
+  CONVERTED // owner confirmed; a tenancy was created
+  CANCELLED
+  EXPIRED
+}
+
+enum TenancyStatus {
+  ACTIVE
+  NOTICE // move-out notice accepted, still living there
+  ENDED
+}
+
+enum AgreementStatus {
+  DRAFT
+  SIGNED
+  VOID
+}
+
+enum InvoiceKind {
+  RENT
+  DEPOSIT
+  TOKEN
+  OTHER
+}
+
+enum InvoiceStatus {
+  DUE
+  PARTIAL
+  PAID
+  VOID
+}
+
+enum InvoiceLineKind {
+  RENT
+  EXTRA
+  DEPOSIT
+  TOKEN
+  ADJUSTMENT
+}
+
+enum PaymentMethod {
+  CASH
+  UPI_DIRECT
+  GATEWAY
+}
+
+enum PaymentStatus {
+  CREATED
+  SUCCESS
+  FAILED
+}
+
+enum DepositEntryType {
+  COLLECTED
+  DEDUCTION
+  REFUND
+}
+
+enum ComplaintStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum VerificationStatus {
+  NOT_STARTED
+  SUBMITTED
+  ACKNOWLEDGED
+}
+
+enum MoveOutStatus {
+  REQUESTED // tenant gave notice
+  ACCEPTED // owner accepted; inspection pending
+  SETTLEMENT_PROPOSED
+  DISPUTED
+  TENANT_ACCEPTED
+  COMPLETED
+  REJECTED
+}
+
+enum FilePurpose {
+  KYC_ID
+  KYC_PHOTO
+  COMPLAINT_PHOTO
+  DEDUCTION_PHOTO
+  AGREEMENT
+  RECEIPT
+}
+
+enum FileStatus {
+  PENDING_UPLOAD
+  UPLOADED
+}
+
+enum MessageChannel {
+  PUSH
+  SMS
+  WHATSAPP
+}
+
+model User {
+  id        String     @id @default(cuid())
+  phone     String     @unique // E.164-ish, e.g. +919876543210
+  name      String
+  role      Role
+  status    UserStatus @default(ACTIVE)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  ownedProperties  Property[]       @relation("PropertyOwner")
+  staffOf          PropertyStaff[]
+  tenantProfile    TenantProfile?
+  refreshTokens    RefreshToken[]
+  bookings         Booking[]
+  complaintsRaised Complaint[]      @relation("ComplaintRaisedBy")
+  complaintsAssigned Complaint[]    @relation("ComplaintAssignee")
+  notifications    Notification[]
+  auditLogs        AuditLog[]       @relation("AuditActor")
+
+  @@index([role])
+}
+
+model OtpRequest {
+  id         String    @id @default(cuid())
+  phone      String
+  codeHash   String // HMAC of the code; the code itself is never stored
+  expiresAt  DateTime
+  attempts   Int       @default(0)
+  consumedAt DateTime?
+  ip         String?
+  createdAt  DateTime  @default(now())
+
+  @@index([phone, createdAt])
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model Property {
+  id                      String       @id @default(cuid())
+  ownerId                 String
+  owner                   User         @relation("PropertyOwner", fields: [ownerId], references: [id])
+  name                    String
+  address                 String
+  city                    String
+  cityCode                String // matches backend/config/cities/<code>.json
+  rentDueDay              Int          @default(5) // 1..28
+  minNoticeDays           Int          @default(30)
+  reservationHoldHours    Int          @default(24)
+  tokenAmountPaise        Int          @default(200000)
+  depositMonths           Int          @default(1) // default deposit = monthly rent x this
+  verificationReminderDays Int         @default(7)
+  remindersEnabled        Boolean      @default(true)
+  inviteCode              String       @unique
+  status                  RecordStatus @default(ACTIVE)
+  createdAt               DateTime     @default(now())
+  updatedAt               DateTime     @updatedAt
+
+  rooms      Room[]
+  staff      PropertyStaff[]
+  tenancies  Tenancy[]
+  bookings   Booking[]
+  invoices   Invoice[]
+  complaints Complaint[]
+  notices    Notice[]
+
+  @@index([ownerId])
+}
+
+model PropertyStaff {
+  id         String       @id @default(cuid())
+  propertyId String
+  property   Property     @relation(fields: [propertyId], references: [id])
+  userId     String
+  user       User         @relation(fields: [userId], references: [id])
+  status     RecordStatus @default(ACTIVE)
+  createdAt  DateTime     @default(now())
+
+  @@unique([propertyId, userId])
+}
+
+model Room {
+  id          String       @id @default(cuid())
+  propertyId  String
+  property    Property     @relation(fields: [propertyId], references: [id])
+  name        String // e.g. "101"
+  floor       Int          @default(0)
+  sharingType Int // beds in the room (1 = single, 2 = double, ...)
+  rentPaise   Int // default monthly rent per bed
+  status      RecordStatus @default(ACTIVE)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  beds    Bed[]
+  notices Notice[]
+
+  @@unique([propertyId, name])
+  @@index([propertyId])
+}
+
+model Bed {
+  id        String       @id @default(cuid())
+  roomId    String
+  room      Room         @relation(fields: [roomId], references: [id])
+  label     String // e.g. "A"
+  status    RecordStatus @default(ACTIVE) // operational status only; occupancy is derived
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  bookings  Booking[]
+  tenancies Tenancy[]
+
+  @@unique([roomId, label])
+  @@index([roomId])
+}
+
+model TenantProfile {
+  id               String    @id @default(cuid())
+  userId           String    @unique
+  user             User      @relation(fields: [userId], references: [id])
+  guardianName     String?
+  guardianPhone    String?
+  fatherName       String?
+  permanentAddress String?
+  occupation       String?
+  workplace        String?
+  idType           String? // AADHAAR, PASSPORT, DL, VOTER_ID, PAN
+  idLast4          String? // only the last 4 characters, never the full number
+  kycStatus        KycStatus @default(NOT_SUBMITTED)
+  kycRejectReason  String?
+  kycIdFileId      String?   @unique
+  kycIdFile        FileObject? @relation("KycIdFile", fields: [kycIdFileId], references: [id])
+  kycPhotoFileId   String?   @unique
+  kycPhotoFile     FileObject? @relation("KycPhotoFile", fields: [kycPhotoFileId], references: [id])
+  kycSubmittedAt   DateTime?
+  kycReviewedAt    DateTime?
+  kycReviewedById  String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  tenancies Tenancy[]
+}
+
+model Booking {
+  id               String        @id @default(cuid())
+  propertyId       String
+  property         Property      @relation(fields: [propertyId], references: [id])
+  bedId            String
+  bed              Bed           @relation(fields: [bedId], references: [id])
+  tenantUserId     String
+  tenantUser       User          @relation(fields: [tenantUserId], references: [id])
+  status           BookingStatus @default(RESERVED)
+  holdUntil        DateTime
+  moveInDate       DateTime      @db.Date
+  rentPaise        Int
+  depositPaise     Int
+  tokenAmountPaise Int
+  cancelReason     String?
+  refundDue        Boolean       @default(false)
+  tenancyId        String?       @unique
+  tenancy          Tenancy?      @relation(fields: [tenancyId], references: [id])
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  invoices Invoice[]
+
+  // Partial unique index "booking_one_live_per_bed" (status IN RESERVED, PAID) is added in SQL migration.
+  @@index([propertyId, status])
+  @@index([tenantUserId])
+  @@index([bedId])
+}
+
+model Tenancy {
+  id              String        @id @default(cuid())
+  propertyId      String
+  property        Property      @relation(fields: [propertyId], references: [id])
+  bedId           String
+  bed             Bed           @relation(fields: [bedId], references: [id])
+  tenantProfileId String
+  tenantProfile   TenantProfile @relation(fields: [tenantProfileId], references: [id])
+  startDate       DateTime      @db.Date
+  billingFrom     DateTime      @db.Date // first date rent is billed from
+  endDate         DateTime?     @db.Date
+  rentPaise       Int
+  depositPaise    Int
+  status          TenancyStatus @default(ACTIVE)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  booking      Booking?
+  agreements   Agreement[]
+  invoices     Invoice[]
+  depositLedger DepositLedger[]
+  complaints   Complaint[]
+  verification VerificationRecord?
+  moveOut      MoveOut?
+  charges      RecurringCharge[]
+  bedMoves     BedMove[]
+
+  // Partial unique index "tenancy_one_live_per_bed" (status IN ACTIVE, NOTICE) is added in SQL migration.
+  @@index([propertyId, status])
+  @@index([tenantProfileId])
+  @@index([bedId])
+}
+
+model BedMove {
+  id        String   @id @default(cuid())
+  tenancyId String
+  tenancy   Tenancy  @relation(fields: [tenancyId], references: [id])
+  fromBedId String
+  toBedId   String
+  movedAt   DateTime @default(now())
+  actorId   String
+}
+
+model RecurringCharge {
+  id          String       @id @default(cuid())
+  tenancyId   String
+  tenancy     Tenancy      @relation(fields: [tenancyId], references: [id])
+  name        String // e.g. "Food", "Electricity"
+  amountPaise Int
+  status      RecordStatus @default(ACTIVE)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([tenancyId])
+}
+
+model Agreement {
+  id               String          @id @default(cuid())
+  tenancyId        String
+  tenancy          Tenancy         @relation(fields: [tenancyId], references: [id])
+  status           AgreementStatus @default(DRAFT)
+  pdfFileId        String          @unique
+  pdfFile          FileObject      @relation("AgreementPdf", fields: [pdfFileId], references: [id])
+  signedPdfFileId  String?         @unique
+  signedPdfFile    FileObject?     @relation("AgreementSignedPdf", fields: [signedPdfFileId], references: [id])
+  esignProvider    String?
+  esignDevOnly     Boolean         @default(true) // true = NOT a legally valid signature
+  signOtpHash      String?
+  signOtpExpiresAt DateTime?
+  signedAt         DateTime?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@index([tenancyId])
+}
+
+model Invoice {
+  id          String        @id @default(cuid())
+  number      String        @unique // human-readable, e.g. INV-2026-11-XXXX
+  propertyId  String
+  property    Property      @relation(fields: [propertyId], references: [id])
+  tenancyId   String?
+  tenancy     Tenancy?      @relation(fields: [tenancyId], references: [id])
+  bookingId   String?
+  booking     Booking?      @relation(fields: [bookingId], references: [id])
+  kind        InvoiceKind
+  periodStart DateTime?     @db.Date
+  periodEnd   DateTime?     @db.Date
+  dueDate     DateTime      @db.Date
+  totalPaise  Int
+  paidPaise   Int           @default(0)
+  status      InvoiceStatus @default(DUE)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  lines     InvoiceLine[]
+  payments  Payment[]
+  reminders ReminderLog[]
+
+  // One RENT invoice per tenancy per period: makes generation idempotent.
+  @@unique([tenancyId, kind, periodStart])
+  @@index([propertyId, status])
+  @@index([tenancyId])
+  @@index([dueDate])
+}
+
+model InvoiceLine {
+  id          String          @id @default(cuid())
+  invoiceId   String
+  invoice     Invoice         @relation(fields: [invoiceId], references: [id])
+  kind        InvoiceLineKind
+  description String
+  amountPaise Int
+  createdAt   DateTime        @default(now())
+
+  @@index([invoiceId])
+}
+
+model Payment {
+  id            String        @id @default(cuid())
+  invoiceId     String
+  invoice       Invoice       @relation(fields: [invoiceId], references: [id])
+  amountPaise   Int
+  method        PaymentMethod
+  status        PaymentStatus @default(CREATED)
+  provider      String? // fake | razorpay
+  gatewayLinkId String?       @unique
+  gatewayLinkUrl String?
+  gatewayPaymentId String?
+  note          String?
+  recordedById  String? // owner/staff who marked cash/UPI received
+  receivedAt    DateTime?
+  failureReason String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([invoiceId])
+  @@index([status])
+}
+
+model WebhookEvent {
+  id          String   @id @default(cuid())
+  provider    String
+  eventId     String
+  type        String
+  signatureOk Boolean
+  status      String // PROCESSED | IGNORED | FAILED | REJECTED
+  error       String?
+  payload     Json
+  createdAt   DateTime @default(now())
+
+  @@unique([provider, eventId])
+  @@index([status])
+}
+
+model DepositLedger {
+  id          String           @id @default(cuid())
+  tenancyId   String
+  tenancy     Tenancy          @relation(fields: [tenancyId], references: [id])
+  type        DepositEntryType
+  amountPaise Int // always positive; type decides the sign
+  reason      String
+  photoFileId String?
+  moveOutId   String?
+  createdById String
+  createdAt   DateTime         @default(now())
+
+  @@index([tenancyId])
+}
+
+model MoveOut {
+  id                   String        @id @default(cuid())
+  tenancyId            String        @unique
+  tenancy              Tenancy       @relation(fields: [tenancyId], references: [id])
+  requestedMoveOutDate DateTime      @db.Date
+  noticeGivenAt        DateTime      @default(now())
+  status               MoveOutStatus @default(REQUESTED)
+  ownerNote            String?
+  checklist            Json? // [{item, ok, note}]
+  depositHeldPaise     Int? // snapshot when settlement proposed
+  deductionsPaise      Int?
+  refundPaise          Int?
+  balanceDuePaise      Int?
+  tenantComment        String?
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  deductions SettlementDeduction[]
+}
+
+model SettlementDeduction {
+  id          String       @id @default(cuid())
+  moveOutId   String
+  moveOut     MoveOut      @relation(fields: [moveOutId], references: [id])
+  reason      String
+  amountPaise Int
+  photoFileId String?
+  status      RecordStatus @default(ACTIVE) // INACTIVE when a revised settlement replaces it
+  createdAt   DateTime     @default(now())
+
+  @@index([moveOutId])
+}
+
+model Complaint {
+  id           String          @id @default(cuid())
+  propertyId   String
+  property     Property        @relation(fields: [propertyId], references: [id])
+  tenancyId    String
+  tenancy      Tenancy         @relation(fields: [tenancyId], references: [id])
+  raisedById   String
+  raisedBy     User            @relation("ComplaintRaisedBy", fields: [raisedById], references: [id])
+  assignedToId String?
+  assignedTo   User?           @relation("ComplaintAssignee", fields: [assignedToId], references: [id])
+  category     String
+  description  String
+  status       ComplaintStatus @default(OPEN)
+  closingNote  String?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  updates ComplaintUpdate[]
+  photos  FileObject[]      @relation("ComplaintPhotos")
+
+  @@index([propertyId, status])
+  @@index([raisedById])
+}
+
+model ComplaintUpdate {
+  id          String           @id @default(cuid())
+  complaintId String
+  complaint   Complaint        @relation(fields: [complaintId], references: [id])
+  authorId    String
+  message     String
+  fromStatus  ComplaintStatus?
+  toStatus    ComplaintStatus?
+  createdAt   DateTime         @default(now())
+
+  @@index([complaintId])
+}
+
+model Notice {
+  id         String       @id @default(cuid())
+  propertyId String
+  property   Property     @relation(fields: [propertyId], references: [id])
+  roomId     String?
+  room       Room?        @relation(fields: [roomId], references: [id])
+  title      String
+  body       String
+  authorId   String
+  status     RecordStatus @default(ACTIVE)
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  @@index([propertyId, status])
+}
+
+model VerificationRecord {
+  id             String             @id @default(cuid())
+  tenancyId      String             @unique
+  tenancy        Tenancy            @relation(fields: [tenancyId], references: [id])
+  cityCode       String
+  status         VerificationStatus @default(NOT_STARTED)
+  submittedAt    DateTime?
+  acknowledgedAt DateTime?
+  reference      String? // e.g. police station acknowledgement number
+  notes          String?
+  lastReminderAt DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@index([status])
+}
+
+model FileObject {
+  id          String      @id @default(cuid())
+  ownerUserId String // who uploaded / whose file it is
+  purpose     FilePurpose
+  storageKey  String      @unique
+  mimeType    String
+  sizeBytes   Int
+  status      FileStatus  @default(PENDING_UPLOAD)
+  complaintId String?
+  complaint   Complaint?  @relation("ComplaintPhotos", fields: [complaintId], references: [id])
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  kycIdFor        TenantProfile? @relation("KycIdFile")
+  kycPhotoFor     TenantProfile? @relation("KycPhotoFile")
+  agreementPdf    Agreement?     @relation("AgreementPdf")
+  agreementSigned Agreement?     @relation("AgreementSignedPdf")
+  accessLogs      FileAccessLog[]
+
+  @@index([ownerUserId])
+}
+
+model FileAccessLog {
+  id        String     @id @default(cuid())
+  fileId    String
+  file      FileObject @relation(fields: [fileId], references: [id])
+  userId    String
+  action    String // UPLOAD_URL | UPLOADED | VIEW_URL | DOWNLOADED
+  createdAt DateTime   @default(now())
+
+  @@index([fileId])
+}
+
+model Notification {
+  id        String         @id @default(cuid())
+  userId    String
+  user      User           @relation(fields: [userId], references: [id])
+  channel   MessageChannel
+  title     String
+  body      String
+  readAt    DateTime?
+  createdAt DateTime       @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model ReminderLog {
+  id         String   @id @default(cuid())
+  invoiceId  String
+  invoice    Invoice  @relation(fields: [invoiceId], references: [id])
+  offsetDays Int // -3, 0, +3
+  channels   String
+  sentAt     DateTime @default(now())
+
+  @@unique([invoiceId, offsetDays])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  actor      User?    @relation("AuditActor", fields: [actorId], references: [id])
+  action     String // e.g. RENT_CHANGED, DEPOSIT_LEDGER_ADDED, KYC_APPROVED
+  entityType String
+  entityId   String
+  before     Json?
+  after      Json?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([actorId])
+}

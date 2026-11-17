@@ -1,0 +1,9 @@
+{
+  "name": "PG Platform — Admin",
+  "short_name": "PG Admin",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5efe3",
+  "theme_color": "#1f1c16",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

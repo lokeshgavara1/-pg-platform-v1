@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    # No Docker: use the PostgreSQL that is preinstalled on GitHub's Ubuntu runners.
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/pg_platform_ci?schema=public
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/pg_platform_test?schema=public
+      JWT_ACCESS_SECRET: ci-access-secret-ci-access-secret-0001
+      JWT_REFRESH_SECRET: ci-refresh-secret-ci-refresh-secret-01
+      OTP_HASH_SECRET: ci-otp-secret-ci-otp-secret-ci-otp-001
+      FILE_SIGNING_SECRET: ci-file-secret-ci-file-secret-ci-0001
+      FAKE_GATEWAY_WEBHOOK_SECRET: ci-fake-gateway-secret-0001
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Start PostgreSQL
+        run: |
+          sudo systemctl start postgresql.service
+          sudo -u postgres psql -c "ALTER USER postgres PASSWORD 'postgres';"
+      - run: npm ci
+      - run: npm run lint -w backend
+      - run: npm test -w backend
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck -w pg-core && npm run typecheck -w owner-app && npm run typecheck -w tenant-app && npm run typecheck -w admin-app
+      - run: npm test -w pg-core && npm test -w owner-app && npm test -w tenant-app
+      - run: npm run build -w owner-app && npm run build -w tenant-app && npm run build -w admin-app

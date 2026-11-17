@@ -1,0 +1,9 @@
+{
+  "name": "PG Platform — Tenant",
+  "short_name": "PG Tenant",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5efe3",
+  "theme_color": "#0e5b4c",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}
