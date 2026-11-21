@@ -1,8 +1,8 @@
 import { Link } from 'react-router-dom';
-import { Card, Initials, maskPhone, PageHead, useAuth } from 'pg-core';
+import { Card, ConnectGoogleCard, Initials, maskPhone, PageHead, useAuth } from 'pg-core';
 
 const LINKS = [
-  { to: '/kyc', title: 'ID verification & my details', sub: 'Upload ID, details for police verification' },
+  { to: '/kyc', title: 'My ID & details', sub: 'Upload your ID and keep your details up to date' },
   { to: '/agreement', title: 'Rental agreement', sub: 'Read and sign' },
   { to: '/dues', title: 'Payments & receipts', sub: 'Pay rent, download receipts' },
   { to: '/move-out', title: 'Moving out', sub: 'Give notice, deposit settlement' },
@@ -21,6 +21,7 @@ export function MePage() {
           <div className="faint mono">{maskPhone(session?.user.phone ?? '')}</div>
         </div>
       </Card>
+      <div style={{ margin: '12px 0' }}><ConnectGoogleCard /></div>
       <Card>
         <ul className="list">
           {LINKS.map((l) => (

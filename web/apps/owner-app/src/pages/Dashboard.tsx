@@ -8,7 +8,7 @@ interface Dashboard {
   overdue: { tenancyId: string; tenantName: string; propertyName: string; room: string; bed: string; overduePaise: number; oldestDueDate: string }[];
   endingSoon: { id: string; status: string; endDate: string | null; property: { name: string }; bed: { label: string; room: { name: string } }; tenantProfile: { user: { name: string } } }[];
   openComplaints: number;
-  pending: { kyc: number; verification: number; bookings: number; moveOuts: number };
+  pending: { kyc: number; bookings: number; moveOuts: number; paymentsToConfirm?: number };
 }
 
 export function DashboardPage() {
@@ -26,11 +26,11 @@ export function DashboardPage() {
         {(d) => {
           const collectedPct = d.month.duePaise ? Math.round((d.month.collectedPaise * 100) / d.month.duePaise) : 0;
           const todo = [
+            { n: d.pending.paymentsToConfirm ?? 0, label: 'UPI payments to confirm', to: '/rent?tab=confirm' },
             { n: d.pending.bookings, label: 'bookings to confirm', to: '/bookings' },
             { n: d.pending.kyc, label: 'KYC to review', to: '/kyc' },
             { n: d.openComplaints, label: 'open complaints', to: '/complaints' },
             { n: d.pending.moveOuts, label: 'move-outs to handle', to: '/move-outs' },
-            { n: d.pending.verification, label: 'police verifications pending', to: '/verification' },
           ].filter((t) => t.n > 0);
           return (
             <div className="stack reveal">

@@ -21,7 +21,7 @@
 
 ## Background jobs
 
-Run hourly inside the backend (`JOBS_ENABLED=true`): expire unpaid reservations (also every 5 min), generate invoices, rent reminders (−3/0/+3 days, never 9 pm–8 am IST), police-verification reminders. All idempotent. Run once by hand with `npm run jobs:run -w backend`.
+Run hourly inside the backend (`JOBS_ENABLED=true`): expire unpaid reservations (also every 5 min), generate invoices, rent reminders (−3/0/+3 days, never 9 pm–8 am IST). All idempotent. Run once by hand with `npm run jobs:run -w backend`.
 
 ## Backups and restore test
 

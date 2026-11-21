@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { prisma } from '../../lib/prisma.js';
-import { pdfMoney, renderPdf } from '../../lib/pdf.js';
+import { drawBrandHeader, pdfMoney, renderPdf } from '../../lib/pdf.js';
 import { toDateString, todayIST } from '../../lib/dates.js';
 
 const TEMPLATE_PATH = fileURLToPath(new URL('../../../../docs/agreement-template.md', import.meta.url));
@@ -54,6 +54,7 @@ export async function agreementValues(tenancyId: string) {
 export async function agreementPdf(tenancyId: string, signature?: { name: string; at: Date; provider: string; devOnly: boolean }) {
   const md = fillTemplate(readFileSync(TEMPLATE_PATH, 'utf8'), await agreementValues(tenancyId));
   return renderPdf((doc) => {
+    drawBrandHeader(doc);
     drawMarkdown(doc, md);
     if (signature) {
       doc.addPage();

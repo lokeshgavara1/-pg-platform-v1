@@ -3,6 +3,7 @@ import { useAuth } from './auth';
 import { useAsync } from './hooks';
 import { formatDateTime } from './format';
 import { BottomNav, Button, EmptyState, Modal, ToastHost, type NavItem } from './ui';
+import { BrandLockup } from './brand';
 
 interface NotificationRow {
   id: string;
@@ -46,12 +47,13 @@ export function NotificationBell() {
   );
 }
 
-export function AppShell({ nav, children, right, appLabel }: { nav: NavItem[]; children: ReactNode; right?: ReactNode; appLabel: string }) {
+/** appLabel shows as a small chip next to the PGPAL wordmark ("Owner", "Staff", "Admin"); omit it for tenants. */
+export function AppShell({ nav, children, right, appLabel }: { nav: NavItem[]; children: ReactNode; right?: ReactNode; appLabel?: string }) {
   const { session, logout } = useAuth();
   return (
     <div className="shell">
       <header className="topbar">
-        <div className="brand"><span className="brand-mark">P</span><span>{appLabel}</span></div>
+        <BrandLockup app={appLabel} size={28} />
         <div className="spacer" />
         {right}
         <NotificationBell />

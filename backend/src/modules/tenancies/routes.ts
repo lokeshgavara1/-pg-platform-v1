@@ -11,6 +11,7 @@ import { managedPropertyIds, ownedProperty, ownedTenancy } from '../access.js';
 import { assertBedFree, lockBed } from '../beds/status.js';
 import { adjustInvoicesForEnd, generateInvoicesForTenancy } from '../invoices/engine.js';
 import { createTenancy, depositHeld } from './service.js';
+import { createLoginLink } from '../auth/google.js';
 
 export const tenanciesRouter = Router();
 
@@ -118,7 +119,6 @@ tenanciesRouter.post('/tenants', requireRole('OWNER'), async (req, res) => {
       rentPaise: input.rentPaise,
       depositPaise: input.depositPaise,
       depositCollectedPaise: input.depositCollectedPaise,
-      cityCode: property.cityCode,
       charges: input.charges,
     });
     if (input.guardianName || input.guardianPhone) {
@@ -136,12 +136,11 @@ tenanciesRouter.post('/tenants', requireRole('OWNER'), async (req, res) => {
 tenanciesRouter.get('/tenancies/:id', requireRole('OWNER'), async (req, res) => {
   const { id } = parse(idParam, req.params);
   const t = await ownedTenancy(me(req), id);
-  const [invoices, ledger, charges, agreements, verification, moveOut, held, bedMoves] = await Promise.all([
+  const [invoices, ledger, charges, agreements, moveOut, held, bedMoves] = await Promise.all([
     prisma.invoice.findMany({ where: { tenancyId: id }, orderBy: { dueDate: 'desc' }, include: { lines: true, payments: { where: { status: 'SUCCESS' } } } }),
     prisma.depositLedger.findMany({ where: { tenancyId: id }, orderBy: { createdAt: 'asc' } }),
     prisma.recurringCharge.findMany({ where: { tenancyId: id }, orderBy: { createdAt: 'asc' } }),
     prisma.agreement.findMany({ where: { tenancyId: id }, orderBy: { createdAt: 'desc' } }),
-    prisma.verificationRecord.findUnique({ where: { tenancyId: id } }),
     prisma.moveOut.findUnique({ where: { tenancyId: id }, include: { deductions: { where: { status: 'ACTIVE' } } } }),
     prisma.$transaction((tx) => depositHeld(tx, id)),
     prisma.bedMove.findMany({ where: { tenancyId: id }, orderBy: { movedAt: 'desc' } }),
@@ -172,7 +171,6 @@ tenanciesRouter.get('/tenancies/:id', requireRole('OWNER'), async (req, res) => 
     depositHeldPaise: held,
     charges,
     agreements,
-    verification,
     moveOut,
     bedMoves,
   });
@@ -264,6 +262,21 @@ tenanciesRouter.post('/charges/:id/deactivate', requireRole('OWNER'), async (req
 });
 
 /** Record deposit money received outside an invoice (e.g. paid in cash before the app). */
+/** One-time link the owner sends the tenant (e.g. on WhatsApp) to sign in with Google for free. */
+tenanciesRouter.post('/tenancies/:id/login-link', requireRole('OWNER'), async (req, res) => {
+  const user = me(req);
+  const { id } = parse(idParam, req.params);
+  const t = await ownedTenancy(user, id);
+  if (t.status === 'ENDED') throw conflict('This tenancy has ended');
+  if (t.tenantProfile.user.status !== 'ACTIVE') throw conflict('This tenant account is deactivated');
+  res.status(201).json({
+    ...(await createLoginLink(t.tenantProfile.userId, user.id)),
+    tenantName: t.tenantProfile.user.name,
+    tenantPhone: t.tenantProfile.user.phone,
+    alreadyConnected: !!t.tenantProfile.user.firebaseUid,
+  });
+});
+
 tenanciesRouter.post('/tenancies/:id/deposit', requireRole('OWNER'), async (req, res) => {
   const user = me(req);
   const { id } = parse(idParam, req.params);

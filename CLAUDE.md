@@ -18,7 +18,7 @@ Two mobile-first web apps (owner app, tenant app), a small admin site, and one N
 - Write an audit_log row for every change to rent, deposits and KYC status, with actor and time.
 - KYC files go in private storage and are opened only through short-lived signed URLs; log each access.
 - Never log or store full ID numbers, OTPs or secrets. Secrets live in .env (never committed); keep .env.example up to date.
-- Payment status changes only through verified gateway webhooks or an owner marking cash received.
+- Payment status changes only through verified gateway webhooks or an owner marking/confirming money received. A tenant's "I've paid" (direct UPI) is only a report; it never changes an invoice by itself.
 - Validate all API input with zod and return one consistent error shape.
 - Every rent, invoice, deposit and access-rule change needs automated tests.
 - No Docker.

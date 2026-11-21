@@ -67,7 +67,7 @@ export function HomePage() {
                         <Link className="list-item" to="/kyc">
                           <div className="grow">
                             <div className="title">{h.kycStatus === 'REJECTED' ? 'Re-upload your ID' : h.kycStatus === 'PENDING' ? 'KYC under review' : 'Upload your ID'}</div>
-                            <div className="meta">Needed for police verification</div>
+                            <div className="meta">Your PG keeps a copy on file</div>
                           </div>
                           <StatusBadge status={h.kycStatus} />
                         </Link>

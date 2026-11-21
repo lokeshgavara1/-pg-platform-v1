@@ -139,11 +139,29 @@ export class RazorpayProvider implements PaymentProvider {
   }
 }
 
+/** PAYMENT_PROVIDER=none: no online gateway (rent is paid by direct UPI or cash and confirmed by the owner). */
+export class NoGatewayProvider implements PaymentProvider {
+  readonly name = 'none';
+  async createPaymentLink(): Promise<PaymentLink> {
+    throw new Error('Online payment links are switched off on this server (PAYMENT_PROVIDER=none)');
+  }
+  verifyWebhook() {
+    return false;
+  }
+  parseWebhook(): NormalizedPaymentEvent {
+    throw new Error('No payment gateway configured');
+  }
+}
+
 let provider: PaymentProvider | null = null;
 export function payments(): PaymentProvider {
-  if (!provider) provider = env.PAYMENT_PROVIDER === 'razorpay' ? new RazorpayProvider() : new FakeGatewayProvider();
+  if (!provider) {
+    provider =
+      env.PAYMENT_PROVIDER === 'razorpay' ? new RazorpayProvider() : env.PAYMENT_PROVIDER === 'fake' ? new FakeGatewayProvider() : new NoGatewayProvider();
+  }
   return provider;
 }
-export function setPaymentProvider(p: PaymentProvider) {
+/** Tests swap providers; null goes back to the one picked from PAYMENT_PROVIDER. */
+export function setPaymentProvider(p: PaymentProvider | null) {
   provider = p;
 }

@@ -25,7 +25,7 @@ export async function buildDashboard(propertyIds: string[], now = new Date()) {
       overdue: [],
       endingSoon: [],
       openComplaints: 0,
-      pending: { kyc: 0, verification: 0, bookings: 0, moveOuts: 0 },
+      pending: { kyc: 0, bookings: 0, moveOuts: 0, paymentsToConfirm: 0 },
     };
   }
   const ids = Prisma.join(propertyIds);
@@ -87,12 +87,12 @@ export async function buildDashboard(propertyIds: string[], now = new Date()) {
     },
   });
 
-  const [openComplaints, kyc, verification, bookings, moveOuts] = await Promise.all([
+  const [openComplaints, kyc, bookings, moveOuts, paymentsToConfirm] = await Promise.all([
     prisma.complaint.count({ where: { propertyId: { in: propertyIds }, status: { in: ['OPEN', 'IN_PROGRESS'] } } }),
     prisma.tenantProfile.count({ where: { kycStatus: 'PENDING', tenancies: { some: { propertyId: { in: propertyIds }, status: { in: ['ACTIVE', 'NOTICE'] } } } } }),
-    prisma.verificationRecord.count({ where: { status: 'NOT_STARTED', tenancy: { propertyId: { in: propertyIds }, status: { in: ['ACTIVE', 'NOTICE'] } } } }),
     prisma.booking.count({ where: { propertyId: { in: propertyIds }, status: 'PAID' } }),
     prisma.moveOut.count({ where: { tenancy: { propertyId: { in: propertyIds } }, status: { in: ['REQUESTED', 'DISPUTED', 'TENANT_ACCEPTED'] } } }),
+    prisma.payment.count({ where: { status: 'REPORTED', invoice: { propertyId: { in: propertyIds } } } }),
   ]);
 
   const total = Number(occ.total);
@@ -110,7 +110,7 @@ export async function buildDashboard(propertyIds: string[], now = new Date()) {
     overdue: overdue.map((o) => ({ ...o, overduePaise: Number(o.overduePaise) })),
     endingSoon,
     openComplaints,
-    pending: { kyc, verification, bookings, moveOuts },
+    pending: { kyc, bookings, moveOuts, paymentsToConfirm },
   };
 }
 

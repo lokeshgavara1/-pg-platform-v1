@@ -3,12 +3,13 @@ import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { prisma } from '../../lib/prisma.js';
 import { idParam, pageQuery, paged, paiseSchema, parse, phoneSchema } from '../../lib/http.js';
-import { conflict, badRequest, notFound } from '../../lib/errors.js';
+import { conflict, notFound } from '../../lib/errors.js';
 import { audit } from '../../lib/audit.js';
 import { me, requireRole } from '../auth/middleware.js';
 import { managedProperty, managedPropertyIds, ownedBed, ownedProperty, ownedRoom } from '../access.js';
 import { deriveBedStatuses } from '../beds/status.js';
-import { listCityCodes } from '../verification/cities.js';
+import { UPI_ID_RE } from '../payments/upi.js';
+import { createLoginLink } from '../auth/google.js';
 
 export const propertiesRouter = Router();
 
@@ -19,14 +20,21 @@ const propertyInput = z.object({
   name: z.string().trim().min(2).max(120),
   address: z.string().trim().min(5).max(400),
   city: z.string().trim().min(2).max(60),
-  cityCode: z.string().trim().toLowerCase().max(40),
   rentDueDay: z.number().int().min(1).max(28).default(5),
   minNoticeDays: z.number().int().min(0).max(180).default(30),
   reservationHoldHours: z.number().int().min(1).max(24 * 14).default(24),
   tokenAmountPaise: paiseSchema.default(200000),
   depositMonths: z.number().int().min(0).max(12).default(1),
-  verificationReminderDays: z.number().int().min(1).max(60).default(7),
   remindersEnabled: z.boolean().default(true),
+  // Free direct UPI payments. null clears it.
+  upiId: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(UPI_ID_RE, 'Enter a UPI ID like yourname@okaxis or 9876543210@ybl')
+    .nullable()
+    .optional(),
+  upiPayeeName: z.string().trim().min(2).max(60).nullable().optional(),
 });
 
 // ---- Properties -----------------------------------------------------------------
@@ -52,7 +60,6 @@ propertiesRouter.get('/properties', requireRole('OWNER', 'STAFF'), async (req, r
 propertiesRouter.post('/properties', requireRole('OWNER'), async (req, res) => {
   const user = me(req);
   const input = parse(propertyInput, req.body);
-  if (!listCityCodes().includes(input.cityCode)) throw badRequest(`Unknown city code. Use one of: ${listCityCodes().join(', ')}`);
   const p = await prisma.property.create({ data: { ...input, ownerId: user.id, inviteCode: newInviteCode() } });
   res.status(201).json(p);
 });
@@ -67,7 +74,6 @@ propertiesRouter.patch('/properties/:id', requireRole('OWNER'), async (req, res)
   const { id } = parse(idParam, req.params);
   const before = await ownedProperty(user, id);
   const input = parse(propertyInput.partial().strict(), req.body);
-  if (input.cityCode && !listCityCodes().includes(input.cityCode)) throw badRequest('Unknown city code');
   const after = await prisma.$transaction(async (tx) => {
     const p = await tx.property.update({ where: { id }, data: input });
     if (input.tokenAmountPaise !== undefined && input.tokenAmountPaise !== before.tokenAmountPaise) {
@@ -75,6 +81,10 @@ propertiesRouter.patch('/properties/:id', requireRole('OWNER'), async (req, res)
     }
     if (input.depositMonths !== undefined && input.depositMonths !== before.depositMonths) {
       await audit(tx, { actorId: user.id, action: 'DEFAULT_DEPOSIT_CHANGED', entityType: 'Property', entityId: id, before: { depositMonths: before.depositMonths }, after: { depositMonths: p.depositMonths } });
+    }
+    // Where tenants send rent: every change is audited (a swapped UPI ID would divert money).
+    if ((input.upiId !== undefined && input.upiId !== before.upiId) || (input.upiPayeeName !== undefined && input.upiPayeeName !== before.upiPayeeName)) {
+      await audit(tx, { actorId: user.id, action: 'UPI_ID_CHANGED', entityType: 'Property', entityId: id, before: { upiId: before.upiId, upiPayeeName: before.upiPayeeName }, after: { upiId: p.upiId, upiPayeeName: p.upiPayeeName } });
     }
     if (input.rentDueDay !== undefined && input.rentDueDay !== before.rentDueDay) {
       await audit(tx, { actorId: user.id, action: 'RENT_DUE_DAY_CHANGED', entityType: 'Property', entityId: id, before: { rentDueDay: before.rentDueDay }, after: { rentDueDay: p.rentDueDay } });
@@ -314,6 +324,16 @@ propertiesRouter.post('/properties/:id/staff', requireRole('OWNER'), async (req,
     update: { status: 'ACTIVE' },
   });
   res.status(201).json(row);
+});
+
+/** One-time login link for a staff member (e.g. sent on WhatsApp); they sign in with Google. */
+propertiesRouter.post('/properties/:id/staff/:userId/login-link', requireRole('OWNER'), async (req, res) => {
+  const user = me(req);
+  const { id, userId } = parse(z.object({ id: z.string(), userId: z.string() }), req.params);
+  await ownedProperty(user, id);
+  const s = await prisma.propertyStaff.findFirst({ where: { propertyId: id, userId, status: 'ACTIVE' }, include: { user: true } });
+  if (!s || s.user.status !== 'ACTIVE') throw notFound('Staff member');
+  res.status(201).json({ ...(await createLoginLink(userId, user.id)), name: s.user.name, phone: s.user.phone });
 });
 
 propertiesRouter.post('/properties/:id/staff/:userId/deactivate', requireRole('OWNER'), async (req, res) => {

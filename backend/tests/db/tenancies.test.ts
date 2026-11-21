@@ -5,7 +5,7 @@ import { prisma } from '../../src/lib/prisma.js';
 describe('tenants and tenancies', () => {
   beforeEach(resetDb);
 
-  it('adding a tenant creates user, profile, tenancy, deposit ledger, verification record and invoice', async () => {
+  it('adding a tenant creates user, profile, tenancy, deposit ledger and invoice', async () => {
     const { owner, property, rooms } = await ownerWithProperty();
     const { tenancy, tenant } = await addTenant(owner, property.id, rooms[0].beds[0].id, { depositPaise: 2000000, depositCollectedPaise: 1500000 });
     expect(tenant.user.role).toBe('TENANT');
@@ -15,7 +15,6 @@ describe('tenants and tenancies', () => {
     const invoices = await prisma.invoice.findMany({ where: { tenancyId: tenancy.id } });
     expect(invoices.map((i) => i.kind).sort()).toEqual(['DEPOSIT', 'RENT']);
     expect(invoices.find((i) => i.kind === 'DEPOSIT')!.totalPaise).toBe(500000);
-    expect(await prisma.verificationRecord.count({ where: { tenancyId: tenancy.id } })).toBe(1);
     const audit = await prisma.auditLog.findMany({ where: { OR: [{ entityId: tenancy.id }, { action: 'DEPOSIT_LEDGER_ADDED' }] } });
     expect(audit.map((a) => a.action).sort()).toEqual(['DEPOSIT_LEDGER_ADDED', 'TENANCY_CREATED']);
   });

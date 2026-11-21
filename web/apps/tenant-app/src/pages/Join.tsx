@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Alert, Async, Button, Card, EmptyState, Field, formatINR, Input, Modal, Money, PageHead, todayIST, useAction, useApi, useAsync } from 'pg-core';
+import { Alert, Async, Button, Card, EmptyState, Field, formatINR, Input, Modal, Money, PageHead, toast, todayIST, useAction, useApi, useAsync } from 'pg-core';
 
 interface Pg {
   id: string;
@@ -8,6 +8,7 @@ interface Pg {
   address: string;
   tokenAmountPaise: number;
   reservationHoldHours: number;
+  payByUpi?: boolean;
   minNoticeDays: number;
   rooms: { id: string; name: string; floor: number; sharingType: number; rentPaise: number; depositPaise: number; beds: { id: string; label: string; available: boolean }[] }[];
 }
@@ -80,6 +81,12 @@ function ReserveModal({ pg, room, bed, onClose }: { pg: Pg; room: Pg['rooms'][nu
   const nav = useNavigate();
   const [moveIn, setMoveIn] = useState(todayIST());
   const reserve = useAction(async () => {
+    if (pg.payByUpi) {
+      // Free direct UPI: reserve, then pay the token from the Pay screen.
+      await client.post('/api/tenant/bookings', { bedId: bed.id, moveInDate: moveIn });
+      toast('Bed reserved — now pay the token by UPI');
+      return nav('/dues');
+    }
     const win = window.open('', '_blank');
     const r = await client.post<{ payment: { url: string } | null }>('/api/tenant/bookings', { bedId: bed.id, moveInDate: moveIn });
     if (r.payment && win) win.location.href = r.payment.url;

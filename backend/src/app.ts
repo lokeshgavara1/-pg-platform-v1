@@ -6,6 +6,7 @@ import { errorHandler, notFoundHandler, requestId } from './lib/http.js';
 import { limiters, rateLimitMiddleware } from './lib/rateLimit.js';
 import { authenticate, requireRole } from './modules/auth/middleware.js';
 import { authRouter } from './modules/auth/routes.js';
+import { googleAuthRouter } from './modules/auth/google.js';
 import { propertiesRouter } from './modules/properties/routes.js';
 import { tenanciesRouter } from './modules/tenancies/routes.js';
 import { invoicesRouter } from './modules/invoices/routes.js';
@@ -18,7 +19,6 @@ import { ownerAgreementsRouter, tenantAgreementsRouter } from './modules/agreeme
 import { ownerComplaintsRouter, tenantComplaintsRouter } from './modules/complaints/routes.js';
 import { ownerNoticesRouter, tenantNoticesRouter } from './modules/notices/routes.js';
 import { ownerMoveOutRouter, tenantMoveOutRouter } from './modules/moveout/routes.js';
-import { verificationRouter } from './modules/verification/routes.js';
 import { tenantRouter } from './modules/tenant/routes.js';
 import { notificationsRouter } from './modules/notifications/routes.js';
 import { adminRouter } from './modules/admin/routes.js';
@@ -56,7 +56,7 @@ export function createApp() {
   app.use(express.json({ limit: '200kb' }));
 
   const api = Router();
-  api.use('/auth', rateLimitMiddleware(limiters.publicPerIp), authRouter);
+  api.use('/auth', rateLimitMiddleware(limiters.publicPerIp), authRouter, googleAuthRouter);
   api.use('/files', filesApiRouter);
   api.use('/notifications', authenticate, notificationsRouter);
 
@@ -73,7 +73,6 @@ export function createApp() {
     ownerComplaintsRouter,
     ownerNoticesRouter,
     ownerMoveOutRouter,
-    verificationRouter,
   ])
     owner.use(r);
   api.use('/owner', owner);

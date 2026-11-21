@@ -6,7 +6,7 @@ import { logger } from '../lib/logger.js';
 import { expireStaleReservations } from '../modules/beds/status.js';
 import { runInvoiceGeneration } from '../modules/invoices/engine.js';
 import { prisma } from '../lib/prisma.js';
-import { runRentReminders, runVerificationReminders } from './reminders.js';
+import { runRentReminders } from './reminders.js';
 
 export async function runAllJobs(now = new Date()) {
   const results: Record<string, unknown> = {};
@@ -14,7 +14,6 @@ export async function runAllJobs(now = new Date()) {
     ['expireReservations', () => expireStaleReservations(prisma, now)],
     ['generateInvoices', () => runInvoiceGeneration()],
     ['rentReminders', () => runRentReminders(now)],
-    ['verificationReminders', () => runVerificationReminders(now)],
   ];
   for (const [name, fn] of jobs) {
     try {

@@ -1,5 +1,6 @@
 import { randomInt } from 'node:crypto';
 import { sms } from './sms.js';
+import { env } from '../config/env.js';
 
 /**
  * E-sign provider interface. A real provider (Aadhaar e-sign via a licensed ASP,
@@ -27,8 +28,20 @@ export class DevOtpEsignProvider implements EsignProvider {
   }
 }
 
-let provider: EsignProvider = new DevOtpEsignProvider();
-export const esign = () => provider;
-export function setEsignProvider(p: EsignProvider) {
-  provider = p;
+/**
+ * ESIGN_PROVIDER=none (production): no electronic signature. The tenant reads the agreement PDF,
+ * signs a printed copy, and the owner records it with "Mark as signed (paper)".
+ */
+export class PaperSigningProvider implements EsignProvider {
+  readonly name = 'paper';
+  readonly devOnly = false;
+  async startSigning(): Promise<{ otp: string }> {
+    throw new Error('Electronic signing is switched off; sign the printed agreement instead');
+  }
+}
+
+let override: EsignProvider | null = null;
+export const esign = (): EsignProvider => override ?? (env.ESIGN_PROVIDER === 'none' ? new PaperSigningProvider() : new DevOtpEsignProvider());
+export function setEsignProvider(p: EsignProvider | null) {
+  override = p;
 }

@@ -1,5 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
-import { AppShell, AuthProvider, createClient, LoginScreen, useAuth, type NavItem } from 'pg-core';
+import { AppShell, AuthProvider, createClient, LoginLinkScreen, LoginScreen, useAuth, type NavItem } from 'pg-core';
 import { HomePage } from './pages/Home';
 import { JoinPage } from './pages/Join';
 import { DuesPage } from './pages/Dues';
@@ -22,10 +22,15 @@ const NAV: NavItem[] = [
 
 function Authed() {
   const { session } = useAuth();
-  if (!session) return <LoginScreen title="Your PG, in your pocket" tagline="Pay rent by UPI, raise complaints, and keep your agreement and receipts safe." />;
+  if (!session) {
+    // One-time login link from the PG owner (sent on WhatsApp): /link/<token>
+    const link = /^\/link\/([\w-]{20,100})\/?$/.exec(window.location.pathname);
+    if (link) return <LoginLinkScreen linkToken={link[1]} />;
+    return <LoginScreen title="Your PG, in your pocket" tagline="Pay rent by UPI, raise complaints, and keep your agreement and receipts safe." />;
+  }
   return (
     <BrowserRouter>
-      <AppShell appLabel="My PG" nav={NAV}>
+      <AppShell nav={NAV}>
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/join" element={<JoinPage />} />
@@ -37,6 +42,7 @@ function Authed() {
           <Route path="/notices" element={<NoticesPage />} />
           <Route path="/move-out" element={<MoveOutPage />} />
           <Route path="/me" element={<MePage />} />
+          <Route path="/link/*" element={<Navigate to="/" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AppShell>

@@ -12,6 +12,7 @@ import { runInvoiceGeneration } from './engine.js';
 import { applyPaymentToInvoice } from '../payments/apply.js';
 import { createPaymentLink, receiptPdf } from '../payments/service.js';
 import { invoiceStatus } from './calc.js';
+import { confirmUpiPayment, payOptions, rejectUpiPayment } from '../payments/upi.js';
 
 export const invoicesRouter = Router();
 
@@ -57,17 +58,59 @@ invoicesRouter.get('/invoices', requireRole('OWNER'), async (req, res) => {
 invoicesRouter.get('/invoices/:id', requireRole('OWNER'), async (req, res) => {
   const { id } = parse(idParam, req.params);
   await ownedInvoice(me(req), id);
-  res.json(
-    await prisma.invoice.findUnique({
-      where: { id },
-      include: {
-        lines: { orderBy: { createdAt: 'asc' } },
-        payments: { orderBy: { createdAt: 'desc' } },
-        property: { select: { name: true } },
-        tenancy: { select: { id: true, tenantProfile: { select: { user: { select: { name: true, phone: true } } } }, bed: { select: { label: true, room: { select: { name: true } } } } } },
+  const inv = await prisma.invoice.findUniqueOrThrow({
+    where: { id },
+    include: {
+      lines: { orderBy: { createdAt: 'asc' } },
+      payments: { orderBy: { createdAt: 'desc' } },
+      property: { select: { name: true, upiId: true, upiPayeeName: true } },
+      tenancy: { select: { id: true, tenantProfile: { select: { user: { select: { name: true, phone: true } } } }, bed: { select: { label: true, room: { select: { name: true } } } } } },
+      booking: { select: { id: true, tenantUser: { select: { name: true, phone: true } } } },
+    },
+  });
+  res.json({ ...inv, payOptions: payOptions(inv.property) });
+});
+
+/** Direct UPI payments tenants reported, waiting for the owner to check and confirm. */
+invoicesRouter.get('/payments/reported', requireRole('OWNER'), async (req, res) => {
+  const user = me(req);
+  const { propertyId } = parse(z.object({ propertyId: z.string().optional() }), req.query);
+  const ids = await managedPropertyIds(user);
+  const rows = await prisma.payment.findMany({
+    where: { status: 'REPORTED', invoice: { propertyId: { in: propertyId ? ids.filter((i) => i === propertyId) : ids } } },
+    orderBy: { createdAt: 'asc' },
+    select: {
+      id: true,
+      amountPaise: true,
+      upiRef: true,
+      createdAt: true,
+      invoice: {
+        select: {
+          id: true,
+          number: true,
+          kind: true,
+          periodStart: true,
+          totalPaise: true,
+          paidPaise: true,
+          tenancy: { select: { id: true, tenantProfile: { select: { user: { select: { name: true } } } }, bed: { select: { label: true, room: { select: { name: true } } } } } },
+          booking: { select: { tenantUser: { select: { name: true } }, bed: { select: { label: true, room: { select: { name: true } } } } } },
+        },
       },
-    }),
-  );
+    },
+  });
+  res.json({ items: rows });
+});
+
+invoicesRouter.post('/payments/:id/confirm', requireRole('OWNER'), async (req, res) => {
+  const { id } = parse(idParam, req.params);
+  const { amountPaise } = parse(z.object({ amountPaise: paiseSchema.refine((v) => v > 0, 'Amount must be more than zero').optional() }), req.body ?? {});
+  res.json(await confirmUpiPayment(me(req), id, amountPaise));
+});
+
+invoicesRouter.post('/payments/:id/reject', requireRole('OWNER'), async (req, res) => {
+  const { id } = parse(idParam, req.params);
+  const { reason } = parse(z.object({ reason: z.string().trim().min(3).max(200) }), req.body);
+  res.json(await rejectUpiPayment(me(req), id, reason));
 });
 
 /** Owner marks money received in cash or by direct UPI. */
@@ -143,6 +186,8 @@ invoicesRouter.post('/invoices/:id/void', requireRole('OWNER'), async (req, res)
 invoicesRouter.post('/invoices/:id/payment-link', requireRole('OWNER'), async (req, res) => {
   const { id } = parse(idParam, req.params);
   await ownedInvoice(me(req), id);
+  const inv = await prisma.invoice.findUniqueOrThrow({ where: { id }, include: { property: true } });
+  if (!payOptions(inv.property).gateway) throw conflict('This PG takes direct UPI payments; share your UPI details instead');
   res.status(201).json(await createPaymentLink(id));
 });
 

@@ -1,5 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
-import { AppShell, AuthProvider, createClient, LoginScreen, Spinner, useAuth, type NavItem } from 'pg-core';
+import { AppShell, AuthProvider, createClient, LoginLinkScreen, LoginScreen, linkTokenFromUrl, Spinner, useAuth, type NavItem } from 'pg-core';
 import { PropertyProvider, PropertySwitcher, useProperty } from './property';
 import { DashboardPage } from './pages/Dashboard';
 import { BedsPage } from './pages/Beds';
@@ -13,7 +13,6 @@ import { KycPage } from './pages/Kyc';
 import { ComplaintsPage } from './pages/Complaints';
 import { NoticesPage } from './pages/Notices';
 import { MoveOutsPage, MoveOutDetailPage } from './pages/MoveOuts';
-import { VerificationPage } from './pages/Verification';
 import { PropertiesPage, PropertyForm } from './pages/Properties';
 
 const client = createClient('owner');
@@ -60,7 +59,6 @@ function OwnerRoutes() {
       <Route path="/notices" element={<NoticesPage />} />
       <Route path="/move-outs" element={<MoveOutsPage />} />
       <Route path="/move-outs/:id" element={<MoveOutDetailPage />} />
-      <Route path="/verification" element={<VerificationPage />} />
       <Route path="/properties" element={<PropertiesPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
@@ -69,12 +67,17 @@ function OwnerRoutes() {
 
 function Authed() {
   const { session } = useAuth();
-  if (!session) return <LoginScreen title="Run your PG without the notebook" tagline="Beds, rent, tenants and paperwork — in one place." />;
+  if (!session) {
+    // Staff open a one-time link from their owner: /link/<token>
+    const linkToken = linkTokenFromUrl();
+    if (linkToken) return <LoginLinkScreen linkToken={linkToken} />;
+    return <LoginScreen title="Run your PG without the notebook" tagline="Beds, rent, tenants and paperwork — in one place." />;
+  }
   const staff = session.user.role === 'STAFF';
   return (
     <BrowserRouter>
       <PropertyProvider>
-        <AppShell appLabel={staff ? 'PG Staff' : 'PG Owner'} nav={staff ? STAFF_NAV : OWNER_NAV} right={staff ? null : <PropertySwitcher />}>
+        <AppShell appLabel={staff ? 'Staff' : 'Owner'} nav={staff ? STAFF_NAV : OWNER_NAV} right={staff ? null : <PropertySwitcher />}>
           {staff ? (
             <Routes>
               <Route path="*" element={<ComplaintsPage staff />} />

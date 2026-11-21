@@ -24,6 +24,12 @@ describe('phone OTP login', () => {
     await api().get('/api/auth/me').set('Authorization', `Bearer ${r.body.accessToken}`).expect(200);
   });
 
+  it('does not return the OTP in the API response outside local development', async () => {
+    const r = await api().post('/api/auth/request-otp').send({ phone: PHONE }).expect(200);
+    expect(r.body.devOtp).toBeUndefined();
+    expect(JSON.stringify(r.body)).not.toContain(ConsoleSmsProvider.lastCodes.get(E164)!);
+  });
+
   it('stores only a hash of the OTP', async () => {
     const code = await requestCode();
     const row = await prisma.otpRequest.findFirstOrThrow({ where: { phone: E164 } });

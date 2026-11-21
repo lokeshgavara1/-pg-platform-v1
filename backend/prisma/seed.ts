@@ -16,6 +16,12 @@ import { addDays, startOfMonth, todayIST } from '../src/lib/dates.js';
 const prisma = new PrismaClient();
 
 async function main() {
+  // Demo data has fake accounts with well-known test numbers: never on a real server.
+  if (process.env.NODE_ENV === 'production') {
+    console.error('Refusing to load demo data: NODE_ENV=production. Create your admin with `npm run admin:create -w backend`.');
+    process.exitCode = 1;
+    return;
+  }
   const existing = await prisma.property.findFirst({ where: { name: 'Sunrise PG for Men' } });
   if (existing) {
     console.log('Seed data already present — skipping. Run `npm run db:reset -w backend` for a clean database.');
@@ -31,7 +37,6 @@ async function main() {
       name: 'Sunrise PG for Men',
       address: '12, 5th Cross, Koramangala 4th Block, Bengaluru 560034',
       city: 'Bengaluru',
-      cityCode: 'bengaluru',
       rentDueDay: 5,
       minNoticeDays: 30,
       reservationHoldHours: 24,
@@ -76,7 +81,6 @@ async function main() {
         rentPaise: t.rent,
         depositPaise: t.rent * 2,
         depositCollectedPaise: t.rent * 2,
-        cityCode: property.cityCode,
         charges: t.name === 'Arjun Mehta' ? [{ name: 'Food (veg)', amountPaise: 300000 }] : [],
       });
       await tx.tenantProfile.update({

@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Card, PageHead } from 'pg-core';
+import { Card, ConnectGoogleCard, PageHead } from 'pg-core';
 import { useProperty } from '../property';
 
 const ITEMS = [
@@ -8,7 +8,6 @@ const ITEMS = [
   { to: '/complaints', icon: '⚑', title: 'Complaints', sub: 'Assign to staff, update and close' },
   { to: '/notices', icon: '✉', title: 'Notices', sub: 'Post to the whole PG or one room' },
   { to: '/move-outs', icon: '⇥', title: 'Move-outs', sub: 'Notices, inspection and deposit settlement' },
-  { to: '/verification', icon: '✓', title: 'Police verification', sub: 'Export tenant details and track status' },
   { to: '/properties', icon: '⚙', title: 'Properties & settings', sub: 'Rent due day, notice period, reminders, staff, invite code' },
 ];
 
@@ -33,6 +32,7 @@ export function MorePage() {
           ))}
         </ul>
       </Card>
+      <div style={{ marginTop: 12 }}><ConnectGoogleCard /></div>
     </>
   );
 }

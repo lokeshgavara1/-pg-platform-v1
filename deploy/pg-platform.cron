@@ -1,0 +1,11 @@
+# PG Platform backups — installed to /etc/cron.d/pg-platform by setup-server.sh.
+# Server clock is UTC on Lightsail: 21:30 UTC = 03:00 IST.
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+BACKUP_DIR=/srv/pg-backups
+
+# Daily: database dump (keeps 14) + private files (KYC, PDFs, photos; keeps 14 days).
+30 21 * * * pgapp cd /srv/pg-platform/backend && npm run backup --silent >> /srv/pg-backups/backup.log 2>&1 && tar -czf /srv/pg-backups/storage-$(date +\%F).tar.gz -C /srv pg-storage && find /srv/pg-backups -name 'storage-*.tar.gz' -mtime +14 -delete
+
+# Weekly (Sunday 03:30 IST): prove the newest dump restores into a scratch database.
+0 22 * * 0 pgapp cd /srv/pg-platform/backend && npm run backup --silent -- --restore-test >> /srv/pg-backups/backup.log 2>&1

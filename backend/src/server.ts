@@ -5,8 +5,8 @@ import { prisma } from './lib/prisma.js';
 import { startScheduler, stopScheduler } from './jobs/scheduler.js';
 
 const app = createApp();
-const server = app.listen(env.PORT, () => {
-  logger.info('server_started', { port: env.PORT, env: env.NODE_ENV, payments: env.PAYMENT_PROVIDER });
+const server = app.listen(env.PORT, env.HOST, () => {
+  logger.info('server_started', { host: env.HOST, port: env.PORT, env: env.NODE_ENV, payments: env.PAYMENT_PROVIDER, sms: env.SMS_PROVIDER });
   if (env.JOBS_ENABLED) startScheduler();
 });
 
