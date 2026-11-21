@@ -22,7 +22,6 @@ export async function createTenancy(
     depositPaise: number;
     /** Deposit already received outside the app (cash/UPI) — written to the ledger now. */
     depositCollectedPaise: number;
-    cityCode: string;
     ignoreBookingId?: string;
     charges?: { name: string; amountPaise: number }[];
   },
@@ -73,7 +72,6 @@ export async function createTenancy(
       lines: [{ kind: 'DEPOSIT', description: 'Security deposit', amountPaise: remaining }],
     });
   }
-  await tx.verificationRecord.create({ data: { tenancyId: tenancy.id, cityCode: input.cityCode } });
   return tenancy;
 }
 

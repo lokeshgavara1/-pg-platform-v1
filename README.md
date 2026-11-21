@@ -1,4 +1,4 @@
-# PG Platform
+# PGPAL — PG & hostel management, made simple
 
 Run a paying-guest (PG) accommodation from first enquiry to move-out: an **owner app**, a **tenant app**, a small **admin site**, and one **Node.js + PostgreSQL backend** that holds every rule.
 
@@ -8,12 +8,13 @@ Built from the two documents in this folder: *PG Platform: Idea, Research and De
 
 | Path | What |
 | --- | --- |
-| `backend/` | Express 5 + TypeScript + Prisma + PostgreSQL. Auth, beds, tenants, invoices, payments, bookings, KYC, agreements, complaints, notices, move-out, verification, admin, jobs. |
+| `backend/` | Express 5 + TypeScript + Prisma + PostgreSQL. Auth, beds, tenants, invoices, payments, bookings, KYC, agreements, complaints, notices, move-out, admin, jobs. |
 | `web/packages/pg-core` | Shared API client (token refresh), auth, money/date helpers, UI kit and theme. |
 | `web/apps/owner-app` | Owner & staff app (port 5173). |
 | `web/apps/tenant-app` | Tenant app (port 5174). |
 | `web/apps/admin-app` | Pilot-support admin site (port 5175). |
 | `docs/` | API, decisions, deploy, ops, security review, release notes, agreement template. |
+| `brand/` | PGPAL logo: original artwork, vector mark (`pgpal-mark.svg`), app icon and PNG icons. |
 
 ## Requirements
 
@@ -50,7 +51,7 @@ This starts the API on http://localhost:4000 and the apps on
 - Tenant app: http://localhost:5174
 - Admin site: http://localhost:5175
 
-**Logging in (development):** enter a phone number, then read the 6-digit OTP from the backend console (`[DEV SMS] OTP for …`). Seeded accounts:
+**Logging in on your PC (development):** use *Continue with Google*, or enter a phone number and the 6-digit OTP shown on screen. Seeded demo accounts (laptop only):
 
 | Who | Phone | App |
 | --- | --- | --- |
@@ -61,7 +62,9 @@ This starts the API on http://localhost:4000 and the apps on
 
 New phone numbers can sign up as an owner (owner app) or a tenant (tenant app). The seeded PG's invite code is **SUNRISE1**.
 
-**Payments in development** use the built-in sandbox gateway: "Pay by UPI" opens a sandbox checkout page; clicking *Pay* sends a signed webhook, and the invoice turns to paid. No real money moves.
+**Payments:** owners add their UPI ID in *Properties & settings*; tenants pay it directly from any UPI app and tap *I've paid*; the owner confirms. On your PC only, PGs without a UPI ID also show a sandbox checkout page (no real money).
+
+**On a server** these development conveniences (on-screen OTP, sandbox payments, test e-signature, demo data) are switched off and cannot be switched on: see the production settings table in [docs/deploy.md](docs/deploy.md).
 
 ## Tests and checks
 
@@ -89,4 +92,4 @@ npm run lint
 
 ## Before real use
 
-See [docs/security-review.md](docs/security-review.md) and [docs/deploy.md](docs/deploy.md). In short: plug in a real SMS provider, payment gateway (Razorpay is implemented but untested against live sandbox keys), e-sign provider (the current one is **test-only, not legally valid**), confirm your city's police-verification fields, and serve over HTTPS.
+See [docs/security-review.md](docs/security-review.md) and [docs/deploy.md](docs/deploy.md). In short: servers run Google sign-in, direct UPI and paper agreements (all free). Optional later: a real SMS provider (OTP login), Razorpay (online payments; implemented but untested against live keys) and a legal e-sign provider.

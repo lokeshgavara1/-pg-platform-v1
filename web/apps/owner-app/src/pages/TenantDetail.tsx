@@ -19,8 +19,7 @@ interface Detail {
   depositLedger: { id: string; type: string; amountPaise: number; reason: string; createdAt: string }[];
   depositHeldPaise: number;
   charges: { id: string; name: string; amountPaise: number; status: string }[];
-  agreements: { id: string; status: string; pdfFileId: string; signedPdfFileId: string | null; signedAt: string | null; esignDevOnly: boolean; createdAt: string }[];
-  verification: { id: string; status: string; reference: string | null } | null;
+  agreements: { id: string; status: string; pdfFileId: string; signedPdfFileId: string | null; signedAt: string | null; esignDevOnly: boolean; esignProvider: string | null; createdAt: string }[];
   moveOut: { id: string; status: string; requestedMoveOutDate: string } | null;
 }
 
@@ -29,11 +28,17 @@ export function TenantDetailPage() {
   const client = useApi();
   const state = useAsync(() => client.get<Detail>(`/api/owner/tenancies/${id}`), [id]);
   const [invoice, setInvoice] = useState<string | null>(null);
-  const [modal, setModal] = useState<null | 'rent' | 'move' | 'end' | 'charge' | 'deposit'>(null);
+  const [modal, setModal] = useState<null | 'rent' | 'move' | 'end' | 'charge' | 'deposit' | 'login'>(null);
 
+  const markSigned = useAction(async (agreementId: string) => {
+    if (!confirm('Has the tenant signed a printed copy of this agreement? Keep the signed paper safe.')) return;
+    await client.post(`/api/owner/agreements/${agreementId}/mark-signed`);
+    toast('Agreement marked as signed');
+    state.reload();
+  });
   const agreement = useAction(async () => {
     await client.post(`/api/owner/tenancies/${id}/agreement`);
-    toast('Agreement created and sent to the tenant to sign');
+    toast('Agreement created — print it for the tenant to sign');
     state.reload();
   });
   const kyc = useAction(async (action: 'approve' | 'reject', profileId: string) => {
@@ -102,9 +107,7 @@ export function TenantDetailPage() {
                 <hr className="divider" />
                 <dl className="kv">
                   <dt>Guardian</dt><dd>{[t.tenant.guardianName, t.tenant.guardianPhone && maskPhone(t.tenant.guardianPhone)].filter(Boolean).join(' · ') || '—'}</dd>
-                  <dt>Occupation</dt><dd>{[t.tenant.occupation, t.tenant.workplace].filter(Boolean).join(', ') || '—'}</dd>
-                  <dt>Police verification</dt><dd>{t.verification ? <Link to="/verification"><StatusBadge status={t.verification.status} /></Link> : '—'}</dd>
-                </dl>
+                  <dt>Occupation</dt><dd>{[t.tenant.occupation, t.tenant.workplace].filter(Boolean).join(', ') || '—'}</dd>                </dl>
               </Card>
 
               <Card ledger>
@@ -114,7 +117,10 @@ export function TenantDetailPage() {
                     {latestAgreement.esignDevOnly && latestAgreement.status === 'SIGNED' && <span className="dev-stamp">Test signature · not legally valid</span>}
                     <div className="row">
                       <Button small variant="secondary" onClick={() => void openFile(client, latestAgreement.signedPdfFileId ?? latestAgreement.pdfFileId)}>Open PDF</Button>
-                      {latestAgreement.signedAt && <span className="faint">Signed {formatDateTime(latestAgreement.signedAt)}</span>}
+                      {latestAgreement.signedAt && <span className="faint">Signed {latestAgreement.esignProvider === 'paper' ? 'on paper ' : ''}{formatDateTime(latestAgreement.signedAt)}</span>}
+                      {live && latestAgreement.status === 'DRAFT' && (
+                        <Button small busy={markSigned.busy} onClick={() => void markSigned.run(latestAgreement.id)}>Mark as signed (paper)</Button>
+                      )}
                     </div>
                   </div>
                 ) : (
@@ -123,7 +129,7 @@ export function TenantDetailPage() {
                 {live && (!latestAgreement || latestAgreement.status === 'DRAFT') && (
                   <Button small style={{ marginTop: 10 }} busy={agreement.busy} onClick={() => void agreement.run()}>{latestAgreement ? 'Regenerate draft' : 'Create agreement'}</Button>
                 )}
-                <Alert>{agreement.error}</Alert>
+                <Alert>{agreement.error || markSigned.error}</Alert>
                 {t.moveOut && (
                   <>
                     <hr className="divider" />
@@ -176,6 +182,7 @@ export function TenantDetailPage() {
 
             {live && (
               <div className="row" style={{ marginTop: 16 }}>
+                <Button variant="accent" onClick={() => setModal('login')}>Send app login link</Button>
                 <Button variant="secondary" onClick={() => setModal('move')}>Move to another bed</Button>
                 <Button variant="danger" onClick={() => setModal('end')}>End tenancy</Button>
               </div>
@@ -187,10 +194,47 @@ export function TenantDetailPage() {
             {modal === 'end' && <EndModal t={t} onClose={() => setModal(null)} onSaved={state.reload} />}
             {modal === 'charge' && <ChargeModal t={t} onClose={() => setModal(null)} onSaved={state.reload} />}
             {modal === 'deposit' && <DepositModal t={t} onClose={() => setModal(null)} onSaved={state.reload} />}
+            {modal === 'login' && <LoginLinkModal t={t} onClose={() => setModal(null)} />}
           </>
         );
       }}
     </Async>
+  );
+}
+
+/** Free alternative to SMS: a one-time link the owner sends from their own WhatsApp. */
+function LoginLinkModal({ t, onClose }: { t: Detail; onClose: () => void }) {
+  const client = useApi();
+  const [link, setLink] = useState<{ url: string; expiresAt: string; alreadyConnected: boolean } | null>(null);
+  const make = useAction(async () => {
+    setLink(await client.post(`/api/owner/tenancies/${t.id}/login-link`));
+  });
+  const message = link
+    ? `Hi ${t.tenant.name.split(' ')[0]}, this is ${t.property.name}. Open this link and tap "Continue with Google" to use our PG app (pay rent, complaints, notices). The link works once and expires on ${formatDate(link.expiresAt)}:\n${link.url}`
+    : '';
+  const wa = `https://wa.me/${t.tenant.phone.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`;
+  return (
+    <Modal open onClose={onClose} title="Send app login link">
+      <div className="stack">
+        <p className="muted" style={{ margin: 0 }}>
+          A free way for {t.tenant.name} to start using the tenant app: send them a one-time link from your WhatsApp. They open it, sign in with their Google account, and it’s connected to this stay.
+        </p>
+        {!link ? (
+          <Button busy={make.busy} onClick={() => void make.run()}>Create link</Button>
+        ) : (
+          <>
+            {link.alreadyConnected && <Alert tone="info">This tenant already has Google sign-in connected. A new link is only needed if they changed their Google account.</Alert>}
+            <Input readOnly value={link.url} onFocus={(e) => e.target.select()} aria-label="Login link" />
+            <div className="row">
+              <a className="btn accent" href={wa} target="_blank" rel="noreferrer">Send on WhatsApp</a>
+              <Button variant="secondary" onClick={() => { void navigator.clipboard?.writeText(message); toast('Message copied'); }}>Copy message</Button>
+            </div>
+            <p className="faint" style={{ margin: 0 }}>Works once; expires {formatDate(link.expiresAt)}. Creating a new link cancels the old one.</p>
+          </>
+        )}
+        <Alert>{make.error}</Alert>
+      </div>
+    </Modal>
   );
 }
 

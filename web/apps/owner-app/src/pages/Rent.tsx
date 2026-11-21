@@ -2,18 +2,24 @@ import { useState } from 'react';
 import { Async, Button, Card, EmptyState, formatDate, Money, PageHead, StatusBadge, Tabs, toast, useAction, useApi, useAsync, type Paged } from 'pg-core';
 import { useProperty } from '../property';
 import { InvoiceModal } from '../components/InvoiceModal';
+import { ReportedPayments } from '../components/ReportedPayments';
+import { useSearchParams } from 'react-router-dom';
 import type { Invoice } from '../types';
 
-type Filter = 'UNPAID' | 'OVERDUE' | 'PAID' | 'ALL';
+type Filter = 'CONFIRM' | 'UNPAID' | 'OVERDUE' | 'PAID' | 'ALL';
 
 export function RentPage() {
   const client = useApi();
   const { current } = useProperty();
-  const [filter, setFilter] = useState<Filter>('UNPAID');
+  const [params] = useSearchParams();
+  const [filter, setFilter] = useState<Filter>(params.get('tab') === 'confirm' ? 'CONFIRM' : 'UNPAID');
   const [page, setPage] = useState(1);
   const [open, setOpen] = useState<string | null>(null);
   const state = useAsync(
-    () => client.get<Paged<Invoice>>(`/api/owner/invoices?propertyId=${current!.id}&page=${page}&pageSize=30${filter === 'ALL' ? '' : `&status=${filter}`}`),
+    () =>
+      filter === 'CONFIRM'
+        ? Promise.resolve({ items: [], page: 1, pageSize: 30, total: 0, totalPages: 1 } as Paged<Invoice>)
+        : client.get<Paged<Invoice>>(`/api/owner/invoices?propertyId=${current!.id}&page=${page}&pageSize=30${filter === 'ALL' ? '' : `&status=${filter}`}`),
     [current?.id, filter, page],
   );
   const gen = useAction(async () => {
@@ -28,10 +34,13 @@ export function RentPage() {
       <PageHead
         eyebrow={current?.name}
         title="Rent"
-        sub="Invoices are created automatically each month. Tap one to record cash or share a payment link."
+        sub="Invoices are created automatically each month. Confirm tenants’ UPI payments under “To confirm”, or tap an invoice to record cash."
         actions={<Button variant="secondary" busy={gen.busy} onClick={() => void gen.run()}>Run billing now</Button>}
       />
-      <Tabs value={filter} onChange={(v) => { setFilter(v); setPage(1); }} options={[{ value: 'UNPAID', label: 'Unpaid' }, { value: 'OVERDUE', label: 'Overdue' }, { value: 'PAID', label: 'Paid' }, { value: 'ALL', label: 'All' }]} />
+      <Tabs value={filter} onChange={(v) => { setFilter(v); setPage(1); }} options={[{ value: 'CONFIRM', label: 'To confirm' }, { value: 'UNPAID', label: 'Unpaid' }, { value: 'OVERDUE', label: 'Overdue' }, { value: 'PAID', label: 'Paid' }, { value: 'ALL', label: 'All' }]} />
+      {filter === 'CONFIRM' ? (
+        <ReportedPayments propertyId={current!.id} />
+      ) : (
       <Card>
         <Async state={state} empty={(d) => (d.items.length === 0 ? <EmptyState title="Nothing here" glyph="₹">{filter === 'UNPAID' ? 'Everyone is paid up.' : null}</EmptyState> : null)}>
           {(d) => (
@@ -70,6 +79,7 @@ export function RentPage() {
           )}
         </Async>
       </Card>
+      )}
       {open && <InvoiceModal invoiceId={open} onClose={() => setOpen(null)} onChanged={state.reload} />}
     </>
   );

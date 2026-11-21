@@ -21,6 +21,8 @@ Codes: `BAD_REQUEST` 400, `NAME_REQUIRED` 400, `UNAUTHORIZED` 401, `FORBIDDEN` 4
 | `GET /health` | anyone | `{ ok, db }`; 503 if the DB is down |
 | `POST /api/auth/request-otp` `{phone}` | anyone | 3/10 min per phone, 20/h per IP |
 | `POST /api/auth/verify-otp` `{phone, code, app: owner\|tenant\|admin, name?}` | anyone | New numbers need `name` (owner/tenant apps only). Refuses accounts of the wrong type for the app. |
+| `POST /api/auth/google` `{idToken, app, name?, phone?, linkToken?}` | anyone | Free Google sign-in (Firebase ID token). New accounts get `PROFILE_REQUIRED` until name + phone are sent; `PHONE_TAKEN` if the number already has an account |
+| `POST /api/auth/google/link` `{idToken}` | signed in | Connect Google to the current account |
 | `POST /api/auth/refresh` `{refreshToken}` | anyone | |
 | `POST /api/auth/logout` `{refreshToken}` | anyone | |
 | `GET /api/auth/me` | signed in | |
@@ -51,15 +53,14 @@ Codes: `BAD_REQUEST` 400, `NAME_REQUIRED` 400, `UNAUTHORIZED` 401, `FORBIDDEN` 4
 | `PATCH /rooms/:id`, `POST /rooms/:id/deactivate` \| `/activate`, `POST /rooms/:id/beds` | owner |
 | `PATCH /beds/:id`, `POST /beds/:id/deactivate` \| `/activate` | owner |
 | `GET/POST /properties/:id/staff`, `POST /properties/:id/staff/:userId/deactivate` | owner |
-| `GET /cities` | owner, staff — compliance configs |
 
 **Tenants**
 
 | Method & path | Notes |
 | --- | --- |
 | `GET /tenants?propertyId&filter=active\|dues\|notice\|ended&search&page` | owner, staff; includes `outstandingPaise`, `overduePaise` |
-| `POST /tenants` | Add tenant: creates user/profile/tenancy, deposit ledger or deposit invoice, verification record, current invoice |
-| `GET /tenancies/:id` | Full detail (invoices, ledger, charges, agreement, verification, move-out) |
+| `POST /tenants` | Add tenant: creates user/profile/tenancy, deposit ledger or deposit invoice, current invoice |
+| `GET /tenancies/:id` | Full detail (invoices, ledger, charges, agreement, move-out) |
 | `PATCH /tenancies/:id` `{rentPaise?, depositPaise?}` | Audited |
 | `POST /tenancies/:id/move-bed` `{bedId}` | |
 | `POST /tenancies/:id/end` `{endDate}` | Prorates the last invoice, voids later unpaid ones |
@@ -79,9 +80,14 @@ Codes: `BAD_REQUEST` 400, `NAME_REQUIRED` 400, `UNAUTHORIZED` 401, `FORBIDDEN` 4
 | `POST /invoices/:id/payment-link` | Gateway link to share |
 | `GET /payments/:id/receipt.pdf` | |
 | `POST /invoices/generate` | Run billing now for own properties (idempotent) |
+| `GET /payments/reported?propertyId` | Direct UPI payments tenants reported, waiting for confirmation |
+| `POST /payments/:id/confirm` `{amountPaise?}` | Owner confirms money arrived (optionally a smaller amount); applies it to the invoice (audited) |
+| `POST /payments/:id/reject` `{reason}` | Owner did not receive it; tenant is told |
+| `PATCH /properties/:id` `{upiId, upiPayeeName}` | Set the UPI ID tenants pay directly (audited) |
+| `POST /tenancies/:id/login-link` | One-time Google login link for a tenant (WhatsApp) |
 | `GET /dashboard?propertyId` | Occupancy, collected vs due this month, overdue tenants, ending soon, pending counts |
 
-**Bookings, KYC, complaints, notices, move-out, verification**
+**Bookings, KYC, complaints, notices, move-out**
 
 | Method & path | Who |
 | --- | --- |
@@ -93,20 +99,20 @@ Codes: `BAD_REQUEST` 400, `NAME_REQUIRED` 400, `UNAUTHORIZED` 401, `FORBIDDEN` 4
 | `GET /notices` (owner, staff), `POST /notices {propertyId, roomId?, title, body}`, `POST /notices/:id/archive` | owner |
 | `GET /move-outs?propertyId&status=OPEN\|ALL`, `GET /move-outs/:id` | owner |
 | `POST /move-outs/:id/accept` \| `/reject {note}` \| `/inspection {checklist}` \| `/settlement {deductions}` \| `/complete` | owner |
-| `GET /verification?propertyId&status`, `PATCH /verification/:id {status, reference?, notes?}` | owner |
-| `POST /verification/export {tenancyIds, format: csv\|pdf}` | owner — file download |
 
 ## Tenant (`/api/tenant`, role TENANT)
 
 | Method & path | Notes |
 | --- | --- |
 | `GET /home` | Stay, dues, KYC, agreement, booking |
-| `GET/PATCH /profile` | Details for police verification |
+| `GET/PATCH /profile` | Optional "about me" details (father's name, address, occupation, workplace, emergency contact) |
 | `GET /pg/:inviteCode` | Vacant beds and prices (no occupant data) |
 | `POST /bookings {bedId, moveInDate}` | Reserve (hold N hours) + token invoice + payment link |
 | `GET /bookings`, `POST /bookings/:id/pay-link`, `POST /bookings/:id/cancel` | |
 | `GET /invoices?status=UNPAID\|ALL`, `GET /invoices/:id`, `POST /invoices/:id/pay-link` | Own only |
 | `GET /payments`, `GET /payments/:id/receipt.pdf` | Receipt history |
+| `POST /invoices/:id/upi-report` `{amountPaise?, upiRef?}` | "I've paid" by direct UPI; status REPORTED until the owner confirms |
+| `POST /payments/:id/withdraw` | Withdraw own pending report |
 | `GET /kyc`, `POST /kyc/submit {idType, idLast4?, idFileId, photoFileId}` | |
 | `GET /agreement`, `POST /agreement/:id/request-otp`, `POST /agreement/:id/sign {otp}` | Dev e-sign: one guess per OTP |
 | `GET/POST /complaints`, `GET /complaints/:id` | ≤ 3 photos |

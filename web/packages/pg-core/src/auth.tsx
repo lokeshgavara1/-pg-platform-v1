@@ -19,6 +19,7 @@ interface AuthValue {
   client: ApiClient;
   session: Session | null;
   login(phone: string, code: string, name?: string): Promise<void>;
+  loginWithGoogle(idToken: string, extra?: { name?: string; phone?: string; linkToken?: string }): Promise<void>;
   logout(): Promise<void>;
 }
 
@@ -45,6 +46,11 @@ export function AuthProvider({ app, client, children }: { app: AppKind; client: 
       session,
       async login(phone, code, name) {
         const r = await client.verifyOtp(phone, code, app, name);
+        if (!APP_ROLES[app].includes(r.user.role)) throw new Error(WRONG_APP_MESSAGE[app]);
+        client.setSession({ user: r.user, accessToken: r.accessToken, refreshToken: r.refreshToken });
+      },
+      async loginWithGoogle(idToken, extra = {}) {
+        const r = await client.googleLogin({ idToken, app, ...extra });
         if (!APP_ROLES[app].includes(r.user.role)) throw new Error(WRONG_APP_MESSAGE[app]);
         client.setSession({ user: r.user, accessToken: r.accessToken, refreshToken: r.refreshToken });
       },

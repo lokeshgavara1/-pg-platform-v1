@@ -85,6 +85,7 @@ enum PaymentMethod {
 
 enum PaymentStatus {
   CREATED
+  REPORTED // tenant says they paid by UPI directly; waits for the owner to confirm
   SUCCESS
   FAILED
 }
@@ -102,11 +103,6 @@ enum ComplaintStatus {
   CLOSED
 }
 
-enum VerificationStatus {
-  NOT_STARTED
-  SUBMITTED
-  ACKNOWLEDGED
-}
 
 enum MoveOutStatus {
   REQUESTED // tenant gave notice
@@ -141,6 +137,12 @@ enum MessageChannel {
 model User {
   id        String     @id @default(cuid())
   phone     String     @unique // E.164-ish, e.g. +919876543210
+  // false when the number was typed in at Google sign-up and nobody has confirmed it yet.
+  // Numbers proved by OTP, or entered by the owner who knows the tenant, count as verified.
+  phoneVerified Boolean @default(true)
+  // Firebase Auth user id for "Sign in with Google" (free; no SMS needed).
+  firebaseUid String?  @unique
+  email       String?
   name      String
   role      Role
   status    UserStatus @default(ACTIVE)
@@ -156,8 +158,24 @@ model User {
   complaintsAssigned Complaint[]    @relation("ComplaintAssignee")
   notifications    Notification[]
   auditLogs        AuditLog[]       @relation("AuditActor")
+  loginLinks       LoginLink[]
 
   @@index([role])
+}
+
+/// One-time link an owner sends a tenant (e.g. on WhatsApp) so the tenant can connect
+/// their Google account to the record the owner created. Only a hash of the token is stored.
+model LoginLink {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+  tokenHash   String    @unique
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdById String
+  createdAt   DateTime  @default(now())
+
+  @@index([userId])
 }
 
 model OtpRequest {
@@ -192,13 +210,14 @@ model Property {
   name                    String
   address                 String
   city                    String
-  cityCode                String // matches backend/config/cities/<code>.json
   rentDueDay              Int          @default(5) // 1..28
   minNoticeDays           Int          @default(30)
   reservationHoldHours    Int          @default(24)
   tokenAmountPaise        Int          @default(200000)
   depositMonths           Int          @default(1) // default deposit = monthly rent x this
-  verificationReminderDays Int         @default(7)
+  // Free direct UPI payments: tenants pay straight to this UPI ID, the owner confirms receipt.
+  upiId                   String?
+  upiPayeeName            String?
   remindersEnabled        Boolean      @default(true)
   inviteCode              String       @unique
   status                  RecordStatus @default(ACTIVE)
@@ -341,7 +360,6 @@ model Tenancy {
   invoices     Invoice[]
   depositLedger DepositLedger[]
   complaints   Complaint[]
-  verification VerificationRecord?
   moveOut      MoveOut?
   charges      RecurringCharge[]
   bedMoves     BedMove[]
@@ -449,7 +467,9 @@ model Payment {
   gatewayLinkUrl String?
   gatewayPaymentId String?
   note          String?
-  recordedById  String? // owner/staff who marked cash/UPI received
+  recordedById  String? // owner/staff who marked cash/UPI received (or confirmed a tenant's report)
+  reportedById  String? // tenant who reported a direct UPI payment
+  upiRef        String? // UPI reference / UTR the tenant entered (12 digits)
   receivedAt    DateTime?
   failureReason String?
   createdAt     DateTime      @default(now())
@@ -575,22 +595,6 @@ model Notice {
   @@index([propertyId, status])
 }
 
-model VerificationRecord {
-  id             String             @id @default(cuid())
-  tenancyId      String             @unique
-  tenancy        Tenancy            @relation(fields: [tenancyId], references: [id])
-  cityCode       String
-  status         VerificationStatus @default(NOT_STARTED)
-  submittedAt    DateTime?
-  acknowledgedAt DateTime?
-  reference      String? // e.g. police station acknowledgement number
-  notes          String?
-  lastReminderAt DateTime?
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
-
-  @@index([status])
-}
 
 model FileObject {
   id          String      @id @default(cuid())

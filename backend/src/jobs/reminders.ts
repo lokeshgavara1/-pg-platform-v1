@@ -51,24 +51,3 @@ export async function runRentReminders(now = new Date()) {
   }
   return { sent };
 }
-
-/** Remind owners about tenants whose police verification is still not started. */
-export async function runVerificationReminders(now = new Date()) {
-  if (isQuietHoursIST(now)) return { skipped: 'quiet-hours', sent: 0 };
-  const today = todayIST(now);
-  const recs = await prisma.verificationRecord.findMany({
-    where: { status: 'NOT_STARTED', tenancy: { status: { in: ['ACTIVE', 'NOTICE'] } } },
-    include: { tenancy: { include: { property: true, tenantProfile: { include: { user: true } } } } },
-  });
-  let sent = 0;
-  for (const r of recs) {
-    const p = r.tenancy.property;
-    if (diffDays(r.tenancy.startDate, today) < p.verificationReminderDays) continue;
-    // At most one reminder per record per week.
-    if (r.lastReminderAt && now.getTime() - r.lastReminderAt.getTime() < 7 * 86400000) continue;
-    await notify({ userId: p.ownerId, title: 'Police verification pending', body: `${r.tenancy.tenantProfile.user.name} at ${p.name} moved in on ${toDateString(r.tenancy.startDate)} and verification is not started.` });
-    await prisma.verificationRecord.update({ where: { id: r.id }, data: { lastReminderAt: now } });
-    sent++;
-  }
-  return { sent };
-}

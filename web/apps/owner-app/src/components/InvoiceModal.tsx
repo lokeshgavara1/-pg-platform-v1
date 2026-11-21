@@ -1,6 +1,27 @@
 import { useState } from 'react';
-import { Alert, Async, Button, Field, formatDate, Input, Modal, Money, MoneyInput, openBlob, Select, StatusBadge, Tabs, toast, todayIST, useAction, useApi, useAsync } from 'pg-core';
+import { Alert, Async, Button, Field, formatDate, formatINR, Input, Modal, Money, MoneyInput, openBlob, Select, StatusBadge, Tabs, toast, todayIST, useAction, useApi, useAsync } from 'pg-core';
 import type { Invoice } from '../types';
+
+/** Free: send the tenant the UPI ID and exact amount on WhatsApp. */
+function ShareUpi({ inv, upi, outstanding }: { inv: Invoice; upi: { upiId: string; payeeName: string }; outstanding: number }) {
+  const name = inv.tenancy?.tenantProfile.user.name ?? inv.booking?.tenantUser.name ?? '';
+  const phone = (inv.tenancy?.tenantProfile.user.phone ?? inv.booking?.tenantUser.phone ?? '').replace(/\D/g, '');
+  const what = inv.kind === 'RENT' ? `rent for ${formatDate(inv.periodStart).slice(2)}` : inv.kind === 'TOKEN' ? 'the booking token' : inv.kind === 'DEPOSIT' ? 'the security deposit' : 'your invoice';
+  const message = `Hi ${name.split(' ')[0]}, please pay ${formatINR(outstanding)} for ${what} (${inv.property?.name ?? ''}) by UPI to ${upi.upiId} (${upi.payeeName}). After paying, open the PG app → Pay → "I've paid" so I can confirm it. Thank you!`;
+  return (
+    <div className="stack">
+      <p className="muted" style={{ margin: 0 }}>Tenants pay your UPI ID directly from their PG app — free, no fees. You can also remind them on WhatsApp.</p>
+      <dl className="kv">
+        <dt>UPI ID</dt><dd className="mono">{upi.upiId}</dd>
+        <dt>Amount</dt><dd><Money paise={outstanding} /></dd>
+      </dl>
+      <div className="row">
+        {phone && <a className="btn accent" href={`https://wa.me/${phone}?text=${encodeURIComponent(message)}`} target="_blank" rel="noreferrer">Send on WhatsApp</a>}
+        <Button variant="secondary" onClick={() => { void navigator.clipboard?.writeText(message); toast('Message copied'); }}>Copy message</Button>
+      </div>
+    </div>
+  );
+}
 
 /** Invoice detail: lines, payments + receipts, record cash/UPI, share a payment link, adjust or void. */
 export function InvoiceModal({ invoiceId, onClose, onChanged }: { invoiceId: string; onClose: () => void; onChanged: () => void }) {
@@ -97,9 +118,16 @@ export function InvoiceModal({ invoiceId, onClose, onChanged }: { invoiceId: str
                 </div>
               )}
 
+              {inv.payments && inv.payments.some((p) => p.status === 'REPORTED') && (
+                <Alert tone="warn">
+                  The tenant says they paid {inv.payments.filter((p) => p.status === 'REPORTED').map((p) => `₹${(p.amountPaise / 100).toLocaleString('en-IN')}${p.upiRef ? ` (ref ${p.upiRef})` : ''}`).join(', ')} by UPI.{' '}
+                  Check your UPI app, then confirm it under <b>Rent → To confirm</b>.
+                </Alert>
+              )}
+
               {open && (
                 <>
-                  <Tabs value={tab} onChange={setTab} options={[{ value: 'pay', label: 'Mark received' }, { value: 'link', label: 'Payment link' }, { value: 'adjust', label: 'Add charge / discount' }]} />
+                  <Tabs value={tab} onChange={setTab} options={[{ value: 'pay', label: 'Mark received' }, { value: 'link', label: inv.payOptions?.gateway === false ? 'Share UPI details' : 'Payment link' }, { value: 'adjust', label: 'Add charge / discount' }]} />
                   {tab === 'pay' && (
                     <form className="stack" onSubmit={(e) => { e.preventDefault(); void record.run(outstanding); }}>
                       <div className="grid cols-2">
@@ -117,7 +145,10 @@ export function InvoiceModal({ invoiceId, onClose, onChanged }: { invoiceId: str
                       <Button type="submit" block busy={record.busy}>Record payment</Button>
                     </form>
                   )}
-                  {tab === 'link' && (
+                  {tab === 'link' && inv.payOptions?.upi && !inv.payOptions.gateway && (
+                    <ShareUpi inv={inv} upi={inv.payOptions.upi} outstanding={outstanding} />
+                  )}
+                  {tab === 'link' && (!inv.payOptions?.upi || inv.payOptions.gateway) && (
                     <div className="stack">
                       <p className="muted" style={{ margin: 0 }}>A link the tenant can open in any browser and pay by UPI. The invoice updates automatically when the gateway confirms.</p>
                       {link ? (

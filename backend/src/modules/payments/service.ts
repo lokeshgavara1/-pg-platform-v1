@@ -3,7 +3,7 @@ import type { Prisma } from '@prisma/client';
 import { prisma, isUniqueViolation } from '../../lib/prisma.js';
 import { conflict } from '../../lib/errors.js';
 import { logger } from '../../lib/logger.js';
-import { pdfMoney, renderPdf, table } from '../../lib/pdf.js';
+import { BRAND_GREEN, drawBrandHeader, pdfMoney, renderPdf, table } from '../../lib/pdf.js';
 import { toDateString } from '../../lib/dates.js';
 import { payments, FakeGatewayProvider, type PaymentProvider } from '../../providers/payment.js';
 import { push } from '../../providers/message.js';
@@ -156,7 +156,8 @@ export async function receiptPdf(paymentId: string): Promise<Buffer> {
   const inv = p.invoice;
   const tenantName = inv.tenancy?.tenantProfile.user.name ?? inv.booking?.tenantUser.name ?? '-';
   return renderPdf((doc) => {
-    doc.font('Helvetica-Bold').fontSize(18).text('Payment Receipt');
+    drawBrandHeader(doc);
+    doc.font('Helvetica-Bold').fontSize(18).fillColor(BRAND_GREEN).text('Payment Receipt');
     doc.font('Helvetica').fontSize(10).fillColor('#555').text(inv.property.name).text(inv.property.address).moveDown();
     doc.fillColor('#111');
     table(doc, [
@@ -166,12 +167,12 @@ export async function receiptPdf(paymentId: string): Promise<Buffer> {
       ...(inv.tenancy ? ([['Room / bed', `${inv.tenancy.bed.room.name} / ${inv.tenancy.bed.label}`]] as [string, string][]) : []),
       ['Invoice', `${inv.number} (${inv.kind})`],
       ...(inv.periodStart && inv.periodEnd ? ([['Period', `${toDateString(inv.periodStart)} to ${toDateString(inv.periodEnd)}`]] as [string, string][]) : []),
-      ['Payment method', p.method === 'GATEWAY' ? `Online (${p.provider})` : p.method === 'UPI_DIRECT' ? 'UPI (recorded by owner)' : 'Cash (recorded by owner)'],
+      ['Payment method', p.method === 'GATEWAY' ? `Online (${p.provider})` : p.method === 'UPI_DIRECT' ? (p.reportedById ? `UPI to owner${p.upiRef ? ` (ref ${p.upiRef})` : ''}, confirmed by owner` : 'UPI (recorded by owner)') : 'Cash (recorded by owner)'],
       ...(p.gatewayPaymentId ? ([['Gateway reference', p.gatewayPaymentId]] as [string, string][]) : []),
       ['Amount received', pdfMoney(p.amountPaise)],
       ['Invoice balance after this payment', pdfMoney(inv.totalPaise - inv.paidPaise)],
     ]);
     if (p.note) doc.moveDown().fontSize(9).fillColor('#555').text(`Note: ${p.note}`);
-    doc.moveDown(2).fontSize(8).fillColor('#888').text(`Issued by ${inv.property.owner.name} via PG Platform. This is a computer-generated receipt.`);
+    doc.moveDown(2).fontSize(8).fillColor('#888').text(`Issued by ${inv.property.owner.name} via PGPAL. This is a computer-generated receipt.`);
   });
 }

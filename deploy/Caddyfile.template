@@ -1,0 +1,46 @@
+# PG Platform staging — generated from deploy/Caddyfile.template by setup-server.sh.
+# Caddy fetches and renews HTTPS certificates automatically.
+
+(common) {
+	encode gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		# Staging must not show up in search results.
+		X-Robots-Tag "noindex, nofollow"
+		-Server
+	}
+}
+
+(spa) {
+	import common
+	header X-Frame-Options DENY
+	# Hashed build assets can be cached forever; index.html must always be fresh.
+	@assets path /assets/*
+	header @assets Cache-Control "public, max-age=31536000, immutable"
+	@html not path /assets/*
+	header @html Cache-Control "no-cache"
+	try_files {path} /index.html
+	file_server
+}
+
+{{API_HOST}} {
+	import common
+	reverse_proxy 127.0.0.1:4000
+}
+
+{{OWNER_HOST}} {
+	root * /srv/pg-platform/web/apps/owner-app/dist
+	import spa
+}
+
+{{TENANT_HOST}} {
+	root * /srv/pg-platform/web/apps/tenant-app/dist
+	import spa
+}
+
+{{ADMIN_HOST}} {
+	root * /srv/pg-platform/web/apps/admin-app/dist
+	import spa
+}

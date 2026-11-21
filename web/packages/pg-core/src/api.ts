@@ -10,6 +10,9 @@ export interface SessionUser {
   name: string;
   role: Role;
   phone: string;
+  email?: string | null;
+  phoneVerified?: boolean;
+  googleConnected?: boolean;
 }
 
 export interface Session {
@@ -168,12 +171,26 @@ export class ApiClient {
 
   // ---- auth ----
   requestOtp(phone: string) {
-    return this.request<{ ok: true; expiresInSeconds: number }>('POST', '/api/auth/request-otp', { phone });
+    // devOtp is only ever present when the backend runs in local development mode.
+    return this.request<{ ok: true; expiresInSeconds: number; devOtp?: string }>('POST', '/api/auth/request-otp', { phone });
   }
 
   async verifyOtp(phone: string, code: string, app: AppKind, name?: string) {
     const data = await this.request<{ user: SessionUser; accessToken: string; refreshToken: string }>('POST', '/api/auth/verify-otp', { phone, code, app, name });
     return data;
+  }
+
+  /** Sign in with a Google (Firebase) ID token. New accounts must also send name + phone. */
+  googleLogin(body: { idToken: string; app: AppKind; name?: string; phone?: string; linkToken?: string }) {
+    return this.request<{ user: SessionUser; accessToken: string; refreshToken: string }>('POST', '/api/auth/google', body);
+  }
+
+  /** Connect Google to the signed-in account, then refresh the stored user. */
+  async connectGoogle(idToken: string) {
+    await this.request('POST', '/api/auth/google/link', { idToken });
+    const { user } = await this.get<{ user: SessionUser }>('/api/auth/me');
+    if (this.session) this.setSession({ ...this.session, user });
+    return user;
   }
 
   async logout() {

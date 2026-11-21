@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { addTenant, api, makeUser, ownerWithProperty, resetDb, todayStr } from '../helpers.js';
 import { prisma } from '../../src/lib/prisma.js';
-import { runRentReminders, runVerificationReminders } from '../../src/jobs/reminders.js';
+import { runRentReminders } from '../../src/jobs/reminders.js';
 import { addDays, todayIST } from '../../src/lib/dates.js';
 
 describe('cross-owner and cross-tenant isolation', () => {
   beforeEach(resetDb);
 
-  it('owner A cannot read owner B’s properties, tenants, invoices, complaints, bookings or exports', async () => {
+  it('owner A cannot read owner B’s properties, tenants, invoices, complaints or agreements', async () => {
     const A = await ownerWithProperty();
     const B = await ownerWithProperty();
     const { tenancy, tenant } = await addTenant(B.owner, B.property.id, B.rooms[0].beds[0].id);
@@ -23,7 +23,6 @@ describe('cross-owner and cross-tenant isolation', () => {
     await api().post(`/api/owner/invoices/${inv.id}/payments`).set(a).send({ amountPaise: 1, method: 'CASH' }).expect(404);
     await api().post(`/api/owner/invoices/${inv.id}/payment-link`).set(a).expect(404);
     await api().get(`/api/owner/complaints/${c.body.id}`).set(a).expect(404);
-    await api().post('/api/owner/verification/export').set(a).send({ tenancyIds: [tenancy.id], format: 'csv' }).expect(404);
     await api().post(`/api/owner/tenancies/${tenancy.id}/agreement`).set(a).expect(404);
 
     // Lists are scoped, and filtering by another owner's propertyId returns nothing.
@@ -91,7 +90,7 @@ describe('dashboard', () => {
     expect(d.body.month.collectedPaise).toBe(1000000);
     expect(d.body.overdue).toHaveLength(1);
     expect(d.body.overdue[0].overduePaise).toBe(1000000);
-    expect(d.body.pending.verification).toBe(2);
+    expect(d.body.pending).toEqual({ kyc: 0, bookings: 0, moveOuts: 0, paymentsToConfirm: 0 });
     expect(d.body.openComplaints).toBe(0);
   });
 });
@@ -126,30 +125,25 @@ describe('reminder scheduler', () => {
     await prisma.reminderLog.deleteMany({});
     expect((await runRentReminders(noonIST)).sent).toBe(0);
   });
-
-  it('reminds the owner about pending police verification', async () => {
-    const { owner, property, rooms } = await ownerWithProperty({ property: { verificationReminderDays: 3 } });
-    await addTenant(owner, property.id, rooms[0].beds[0].id, { joinDate: '2024-01-01' });
-    const noonIST = new Date(Date.UTC(todayIST().getUTCFullYear(), todayIST().getUTCMonth(), todayIST().getUTCDate(), 6, 30));
-    expect((await runVerificationReminders(noonIST)).sent).toBe(1);
-    expect((await runVerificationReminders(noonIST)).sent).toBe(0);
-  });
 });
 
-describe('verification export', () => {
+describe('police verification is removed', () => {
   beforeEach(resetDb);
 
-  it('exports CSV with only the last 4 ID digits and tracks status', async () => {
-    const { owner, property, rooms } = await ownerWithProperty();
-    const { tenancy, tenant } = await addTenant(owner, property.id, rooms[0].beds[0].id, { name: '=HYPERLINK("x")' });
-    await prisma.tenantProfile.update({ where: { userId: tenant.user.id }, data: { idType: 'AADHAAR', idLast4: '9012' } });
-    const r = await api().post('/api/owner/verification/export').set(owner.auth).send({ tenancyIds: [tenancy.id], format: 'csv' }).expect(200);
-    expect(r.text).toContain('XXXX9012');
-    expect(r.text).toContain(`"'=HYPERLINK(""x"")"`); // formula injection neutralised
-    const pdf = await api().post('/api/owner/verification/export').set(owner.auth).send({ tenancyIds: [tenancy.id], format: 'pdf' }).expect(200);
-    expect(pdf.headers['content-type']).toBe('application/pdf');
-    const rec = await prisma.verificationRecord.findUniqueOrThrow({ where: { tenancyId: tenancy.id } });
-    await api().patch(`/api/owner/verification/${rec.id}`).set(owner.auth).send({ status: 'SUBMITTED', reference: 'KOR/123' }).expect(200);
-    expect(await prisma.auditLog.count({ where: { action: 'VERIFICATION_STATUS_CHANGED' } })).toBe(1);
+  it('has no verification endpoints, and old city-code settings are refused', async () => {
+    const { owner, property } = await ownerWithProperty();
+    await api().get('/api/owner/verification').set(owner.auth).expect(404);
+    await api().post('/api/owner/verification/export').set(owner.auth).send({ tenancyIds: ['x'], format: 'csv' }).expect(404);
+    await api().get('/api/owner/cities').set(owner.auth).expect(404);
+    // Unknown fields are rejected rather than silently stored.
+    await api().patch(`/api/owner/properties/${property.id}`).set(owner.auth).send({ cityCode: 'bengaluru' }).expect(400);
+    await api().patch(`/api/owner/properties/${property.id}`).set(owner.auth).send({ verificationReminderDays: 3 }).expect(400);
+  });
+
+  it('a property needs only a plain city name', async () => {
+    const owner = await makeUser('OWNER');
+    const r = await api().post('/api/owner/properties').set(owner.auth).send({ name: 'Any PG', address: '5 Main Road', city: 'Vizag' }).expect(201);
+    expect(r.body.city).toBe('Vizag');
+    expect(r.body).not.toHaveProperty('cityCode');
   });
 });

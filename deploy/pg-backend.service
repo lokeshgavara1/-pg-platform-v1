@@ -1,0 +1,27 @@
+[Unit]
+Description=PG Platform API
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=pgapp
+Group=pgapp
+WorkingDirectory=/srv/pg-platform/backend
+# Settings come from backend/.env (loaded by the app).
+ExecStart=/usr/bin/node dist/server.js
+Restart=always
+RestartSec=3
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

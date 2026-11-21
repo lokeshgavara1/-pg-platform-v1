@@ -3,15 +3,15 @@ export interface Property {
   name: string;
   address: string;
   city: string;
-  cityCode: string;
   rentDueDay: number;
   minNoticeDays: number;
   reservationHoldHours: number;
   tokenAmountPaise: number;
   depositMonths: number;
-  verificationReminderDays: number;
   remindersEnabled: boolean;
   inviteCode: string;
+  upiId: string | null;
+  upiPayeeName: string | null;
   status: 'ACTIVE' | 'INACTIVE';
 }
 
@@ -45,8 +45,11 @@ export interface Payment {
   id: string;
   amountPaise: number;
   method: 'CASH' | 'UPI_DIRECT' | 'GATEWAY';
-  status: 'CREATED' | 'SUCCESS' | 'FAILED';
+  status: 'CREATED' | 'REPORTED' | 'SUCCESS' | 'FAILED';
   note?: string | null;
+  upiRef?: string | null;
+  reportedById?: string | null;
+  failureReason?: string | null;
   receivedAt?: string | null;
   createdAt: string;
   gatewayLinkUrl?: string | null;
@@ -64,9 +67,10 @@ export interface Invoice {
   status: 'DUE' | 'PARTIAL' | 'PAID' | 'VOID';
   lines?: InvoiceLine[];
   payments?: Payment[];
-  property?: { name: string };
+  property?: { name: string; upiId?: string | null; upiPayeeName?: string | null };
   tenancy?: { id: string; tenantProfile: { user: { name: string; phone?: string } }; bed: { label: string; room: { name: string } } } | null;
-  booking?: { id: string; tenantUser: { name: string } } | null;
+  booking?: { id: string; tenantUser: { name: string; phone?: string } } | null;
+  payOptions?: { upi: { upiId: string; payeeName: string } | null; gateway: boolean };
 }
 
 export interface TenancyRow {

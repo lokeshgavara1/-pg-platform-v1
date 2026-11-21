@@ -10,9 +10,9 @@ describe('properties, rooms and beds', () => {
     expect(rooms[0].beds.map((b) => b.label)).toEqual(['A', 'B', 'C']);
   });
 
-  it('rejects unknown city codes and invalid rent', async () => {
+  it('rejects a missing city and invalid rent', async () => {
     const owner = await makeUser('OWNER');
-    await api().post('/api/owner/properties').set(owner.auth).send({ name: 'X PG', address: 'Somewhere 12', city: 'Mars', cityCode: 'mars' }).expect(400);
+    await api().post('/api/owner/properties').set(owner.auth).send({ name: 'X PG', address: 'Somewhere 12' }).expect(400);
     const { owner: o2, property } = await ownerWithProperty();
     await api().post(`/api/owner/properties/${property.id}/rooms`).set(o2.auth).send({ name: '9', sharingType: 1, rentPaise: 1000.5 }).expect(400);
     await api().post(`/api/owner/properties/${property.id}/rooms`).set(o2.auth).send({ name: '9', sharingType: 1, rentPaise: 0 }).expect(400);

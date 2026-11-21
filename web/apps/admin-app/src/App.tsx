@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { BrowserRouter, Link, Navigate, Route, Routes, useParams } from 'react-router-dom';
 import {
-  Alert, AppShell, Async, AuthProvider, Button, Card, createClient, EmptyState, Field, formatDate, formatDateTime, Input, LoginScreen, Money, PageHead, StatusBadge, Tabs, TextArea, Modal, toast, useAction, useApi, useAsync, useAuth, type NavItem,
+  Alert, AppShell, Async, AuthProvider, Button, Card, ConnectGoogleCard, createClient, EmptyState, Field, formatDate, formatDateTime, Input, LoginLinkScreen, LoginScreen, linkTokenFromUrl, Money, PageHead, StatusBadge, Tabs, TextArea, Modal, toast, useAction, useApi, useAsync, useAuth, type NavItem,
 } from 'pg-core';
 
 /** Pilot-support admin site. Read-only, except deactivate/activate (audited). Cannot open tenant documents. */
@@ -27,6 +27,7 @@ function UsersPage() {
   return (
     <>
       <PageHead eyebrow="Admin" title="Users" sub="Search by phone number (at least 3 digits)." />
+      <div style={{ marginBottom: 12 }}><ConnectGoogleCard /></div>
       <Input type="search" inputMode="numeric" placeholder="98765…" value={phone} onChange={(e) => setPhone(e.target.value)} aria-label="Search by phone" />
       <Card style={{ marginTop: 12 }}>
         <Async state={state} empty={(d) => (d.items.length === 0 ? <EmptyState title="No users found" /> : null)}>
@@ -179,10 +180,15 @@ function WebhooksPage() {
 
 function Authed() {
   const { session } = useAuth();
-  if (!session) return <LoginScreen title="Pilot support" tagline="Admin access only." allowSignup={false} />;
+  if (!session) {
+    // First sign-in: one-time link printed by `npm run admin:create` on the server.
+    const linkToken = linkTokenFromUrl();
+    if (linkToken) return <LoginLinkScreen linkToken={linkToken} />;
+    return <LoginScreen title="Pilot support" tagline="Admin access only." allowSignup={false} />;
+  }
   return (
     <BrowserRouter>
-      <AppShell appLabel="PG Admin" nav={NAV}>
+      <AppShell appLabel="Admin" nav={NAV}>
         <Routes>
           <Route path="/" element={<UsersPage />} />
           <Route path="/users/:id" element={<UserPage />} />

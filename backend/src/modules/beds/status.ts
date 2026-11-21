@@ -94,7 +94,13 @@ export async function assertBedFree(tx: Tx, bedId: string, opts: { ignoreTenancy
 /** RESERVED bookings past their hold time become EXPIRED and their token invoice is voided. */
 export async function expireStaleReservations(db: Db, now = new Date(), bedId?: string) {
   const stale = await db.booking.findMany({
-    where: { status: 'RESERVED', holdUntil: { lte: now }, ...(bedId ? { bedId } : {}) },
+    where: {
+      status: 'RESERVED',
+      holdUntil: { lte: now },
+      // Never expire while a reported UPI token payment is waiting for the owner.
+      invoices: { none: { payments: { some: { status: 'REPORTED' } } } },
+      ...(bedId ? { bedId } : {}),
+    },
     select: { id: true },
   });
   if (stale.length === 0) return 0;

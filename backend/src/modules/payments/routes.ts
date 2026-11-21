@@ -4,7 +4,7 @@ import { prisma } from '../../lib/prisma.js';
 import { parse } from '../../lib/http.js';
 import { notFound } from '../../lib/errors.js';
 import { env } from '../../config/env.js';
-import { payments, FakeGatewayProvider, RazorpayProvider } from '../../providers/payment.js';
+import { payments, FakeGatewayProvider } from '../../providers/payment.js';
 import { buildFakeWebhook, processWebhook } from './service.js';
 import { pdfMoney } from '../../lib/pdf.js';
 
@@ -13,7 +13,10 @@ export const webhooksRouter = Router();
 
 webhooksRouter.post('/payments/:provider', express.raw({ type: '*/*', limit: '1mb' }), async (req, res) => {
   const { provider } = parse(z.object({ provider: z.enum(['fake', 'razorpay']) }), req.params);
-  const p = payments().name === provider ? payments() : provider === 'fake' ? new FakeGatewayProvider() : new RazorpayProvider();
+  // Only the gateway this server is configured for may post webhooks. (Previously the sandbox
+  // webhook stayed reachable in production, guarded only by a default secret.)
+  if (env.PAYMENT_PROVIDER !== provider) throw notFound();
+  const p = payments();
   const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.from('');
   const result = await processWebhook(p, raw, req.headers);
   res.status(result.status).json(result.body);

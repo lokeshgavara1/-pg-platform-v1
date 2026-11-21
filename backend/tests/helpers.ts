@@ -29,13 +29,13 @@ export async function makeUser(role: Role, name = `${role.toLowerCase()} user`) 
 
 export type Actor = Awaited<ReturnType<typeof makeUser>>;
 
-/** Owner with one property (cityCode bengaluru) and rooms created through the API. */
+/** Owner with one property and rooms created through the API. */
 export async function ownerWithProperty(opts: { rooms?: { name: string; sharingType: number; rentPaise: number }[]; property?: Record<string, unknown> } = {}) {
   const owner = await makeUser('OWNER', 'Owner');
   const p = await api()
     .post('/api/owner/properties')
     .set(owner.auth)
-    .send({ name: 'Test PG', address: '1 Test Road, Bengaluru', city: 'Bengaluru', cityCode: 'bengaluru', ...opts.property })
+    .send({ name: 'Test PG', address: '1 Test Road, Bengaluru', city: 'Bengaluru', ...opts.property })
     .expect(201);
   const rooms = [];
   for (const r of opts.rooms ?? [{ name: '101', sharingType: 2, rentPaise: 1000000 }]) {

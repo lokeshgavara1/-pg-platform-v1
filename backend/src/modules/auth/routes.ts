@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import type { Role } from '@prisma/client';
+import type { Role, User } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { parse, phoneSchema } from '../../lib/http.js';
 import { AppError, forbidden, tooMany } from '../../lib/errors.js';
@@ -8,33 +8,63 @@ import { clientIp, limiters } from '../../lib/rateLimit.js';
 import { checkOtp, consumeOtp, requestOtp } from './otp.js';
 import { issueRefreshToken, revokeRefreshToken, rotateRefreshToken, signAccessToken, ACCESS_TTL_SECONDS } from './tokens.js';
 import { authenticate, me } from './middleware.js';
+import { env } from '../../config/env.js';
+import { features } from '../../config/providerGuard.js';
 
 export const authRouter = Router();
 
+export type AppKind = 'owner' | 'tenant' | 'admin';
+
 /** Which roles may sign in to which app. Enforced here AND in each app. */
-const APP_ROLES: Record<'owner' | 'tenant' | 'admin', Role[]> = {
+export const APP_ROLES: Record<AppKind, Role[]> = {
   owner: ['OWNER', 'STAFF'],
   tenant: ['TENANT'],
   admin: ['ADMIN'],
 };
 
-const APP_REFUSAL: Record<'owner' | 'tenant' | 'admin', string> = {
-  owner: 'This number is registered as a tenant. Please use the tenant app.',
-  tenant: 'This number is registered as an owner or staff account. Please use the owner app.',
+export const APP_REFUSAL: Record<AppKind, string> = {
+  owner: 'This account is registered as a tenant. Please use the tenant app.',
+  tenant: 'This account is registered as an owner or staff account. Please use the owner app.',
   admin: 'This account is not an admin.',
 };
 
-export function publicUser(u: { id: string; name: string; role: Role; phone: string }) {
-  return { id: u.id, name: u.name, role: u.role, phone: u.phone };
+export function publicUser(u: { id: string; name: string; role: Role; phone: string; email?: string | null; phoneVerified?: boolean; firebaseUid?: string | null }) {
+  return { id: u.id, name: u.name, role: u.role, phone: u.phone, email: u.email ?? null, phoneVerified: u.phoneVerified ?? true, googleConnected: !!u.firebaseUid };
+}
+
+/** Same checks for every sign-in method: account active, and the right kind of account for this app. */
+export function assertAppAccess(user: User, app: AppKind) {
+  if (user.status !== 'ACTIVE') throw forbidden('This account has been deactivated. Contact support.');
+  if (!APP_ROLES[app].includes(user.role)) throw forbidden(APP_REFUSAL[app]);
+}
+
+export async function sessionResponse(user: User) {
+  return {
+    user: publicUser(user),
+    accessToken: signAccessToken(user.id, user.role),
+    accessTokenExpiresIn: ACCESS_TTL_SECONDS,
+    refreshToken: await issueRefreshToken(user.id),
+  };
+}
+
+/** Which login/payment/signing options this server offers, so the apps show only what works. */
+authRouter.get('/config', (_req, res) => {
+  res.json(features(env));
+});
+
+function assertOtpEnabled() {
+  if (!features(env).otpLogin) throw new AppError(503, 'OTP_DISABLED', 'Mobile OTP login is not available. Please continue with Google.');
 }
 
 authRouter.post('/request-otp', async (req, res) => {
+  assertOtpEnabled();
   const { phone } = parse(z.object({ phone: phoneSchema }), req.body);
   const result = await requestOtp(phone, clientIp(req));
   res.json({ ok: true, ...result });
 });
 
 authRouter.post('/verify-otp', async (req, res) => {
+  assertOtpEnabled();
   if (!limiters.verifyPerIp.hit(clientIp(req))) throw tooMany();
   const body = parse(
     z.object({
@@ -65,15 +95,8 @@ authRouter.post('/verify-otp', async (req, res) => {
   } else {
     await consumeOtp(otpId);
   }
-  if (user.status !== 'ACTIVE') throw forbidden('This account has been deactivated. Contact support.');
-  if (!APP_ROLES[body.app].includes(user.role)) throw forbidden(APP_REFUSAL[body.app]);
-
-  res.json({
-    user: publicUser(user),
-    accessToken: signAccessToken(user.id, user.role),
-    accessTokenExpiresIn: ACCESS_TTL_SECONDS,
-    refreshToken: await issueRefreshToken(user.id),
-  });
+  assertAppAccess(user, body.app);
+  res.json(await sessionResponse(user));
 });
 
 authRouter.post('/refresh', async (req, res) => {

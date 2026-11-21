@@ -3,38 +3,35 @@ import { Alert, Async, Button, Card, Field, Input, maskPhone, MoneyInput, PageHe
 import { useProperty } from '../property';
 import type { Property } from '../types';
 
-interface City { code: string; name: string }
-
 export function PropertyForm({ property, onSaved }: { property?: Property; onSaved: () => void }) {
   const client = useApi();
-  const cities = useAsync(() => client.get<{ items: City[] }>('/api/owner/cities'), []);
   const [f, setF] = useState({
     name: property?.name ?? '',
     address: property?.address ?? '',
     city: property?.city ?? '',
-    cityCode: property?.cityCode ?? 'bengaluru',
     rentDueDay: String(property?.rentDueDay ?? 5),
     minNoticeDays: String(property?.minNoticeDays ?? 30),
     reservationHoldHours: String(property?.reservationHoldHours ?? 24),
     depositMonths: String(property?.depositMonths ?? 1),
-    verificationReminderDays: String(property?.verificationReminderDays ?? 7),
     remindersEnabled: property?.remindersEnabled ?? true,
   });
   const [token, setToken] = useState<number | null>(property?.tokenAmountPaise ?? 200000);
+  const [upiId, setUpiId] = useState(property?.upiId ?? '');
+  const [upiPayeeName, setUpiPayeeName] = useState(property?.upiPayeeName ?? '');
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
   const save = useAction(async () => {
     const body = {
       name: f.name.trim(),
       address: f.address.trim(),
-      city: f.city.trim() || cities.data?.items.find((c) => c.code === f.cityCode)?.name,
-      cityCode: f.cityCode,
+      city: f.city.trim(),
       rentDueDay: Number(f.rentDueDay),
       minNoticeDays: Number(f.minNoticeDays),
       reservationHoldHours: Number(f.reservationHoldHours),
       depositMonths: Number(f.depositMonths),
-      verificationReminderDays: Number(f.verificationReminderDays),
       remindersEnabled: f.remindersEnabled,
       tokenAmountPaise: token ?? 0,
+      upiId: upiId.trim() ? upiId.trim().toLowerCase() : null,
+      upiPayeeName: upiPayeeName.trim() || null,
     };
     if (property) await client.patch(`/api/owner/properties/${property.id}`, body);
     else await client.post('/api/owner/properties', body);
@@ -47,14 +44,22 @@ export function PropertyForm({ property, onSaved }: { property?: Property; onSav
         <h3>The building</h3>
         <Field label="PG name"><Input value={f.name} onChange={set('name')} placeholder="Sunrise PG for Men" required /></Field>
         <Field label="Address"><Input value={f.address} onChange={set('address')} required /></Field>
+        <Field label="City"><Input value={f.city} onChange={set('city')} placeholder="Bengaluru" required minLength={2} /></Field>
+      </Card>
+      <Card ledger className="stack">
+        <h3>Rent payments by UPI (free)</h3>
+        <p className="muted" style={{ margin: 0 }}>
+          Tenants pay straight into your UPI account from GPay, PhonePe or Paytm. No fees. They tap “I’ve paid”, and you confirm once you see the money.
+        </p>
         <div className="grid cols-2">
-          <Field label="City (for compliance rules)">
-            <Select value={f.cityCode} onChange={set('cityCode')}>
-              {cities.data?.items.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}
-            </Select>
+          <Field label="Your UPI ID" hint="e.g. yourname@okaxis or 9876543210@ybl — find it in your UPI app’s profile">
+            <Input value={upiId} onChange={(e) => setUpiId(e.target.value)} placeholder="yourname@okaxis" autoCapitalize="none" autoCorrect="off" spellCheck={false} />
           </Field>
-          <Field label="Area / locality"><Input value={f.city} onChange={set('city')} placeholder="Bengaluru" /></Field>
+          <Field label="Name shown to tenants" hint="As it appears in your UPI app"><Input value={upiPayeeName} onChange={(e) => setUpiPayeeName(e.target.value)} placeholder="Ramesh Kumar" /></Field>
         </div>
+        <p className="faint" style={{ margin: 0 }}>
+          Tip: a free business UPI ID (PhonePe Business, Paytm for Business or Google Pay for Business) works most reliably for payment links. Every change here is recorded in the audit log.
+        </p>
       </Card>
       <Card ledger className="stack">
         <h3>Rules</h3>
@@ -64,7 +69,6 @@ export function PropertyForm({ property, onSaved }: { property?: Property; onSav
           <Field label="Default deposit (months of rent)"><Input type="number" min={0} max={12} value={f.depositMonths} onChange={set('depositMonths')} /></Field>
           <Field label="Booking token"><MoneyInput value={token} onChange={setToken} /></Field>
           <Field label="Hold unpaid bookings for (hours)"><Input type="number" min={1} max={336} value={f.reservationHoldHours} onChange={set('reservationHoldHours')} /></Field>
-          <Field label="Remind me about police verification after (days)"><Input type="number" min={1} max={60} value={f.verificationReminderDays} onChange={set('verificationReminderDays')} /></Field>
         </div>
         <label className="check">
           <input type="checkbox" checked={f.remindersEnabled} onChange={(e) => setF({ ...f, remindersEnabled: e.target.checked })} />
@@ -109,7 +113,9 @@ function InviteCard({ property, onChanged }: { property: Property; onChanged: ()
     await client.post(`/api/owner/properties/${property.id}/invite-code/rotate`);
     onChanged();
   });
-  const tenantUrl = `${location.protocol}//${location.hostname}:5174/join/${property.inviteCode}`;
+  // Set VITE_TENANT_APP_URL at build time on servers; locally the tenant app runs on port 5174.
+  const tenantBase = (import.meta.env.VITE_TENANT_APP_URL as string | undefined)?.replace(/\/$/, '') ?? `${location.protocol}//${location.hostname}:5174`;
+  const tenantUrl = `${tenantBase}/join/${property.inviteCode}`;
   return (
     <Card ledger>
       <div className="card-head"><h3>Tenant invite code</h3></div>
@@ -134,12 +140,24 @@ function StaffCard({ propertyId }: { propertyId: string }) {
     await client.post(`/api/owner/properties/${propertyId}/staff`, { name, phone: phone.replace(/\D/g, '').slice(-10) });
     setName('');
     setPhone('');
-    toast('Staff added — they log in to this app with their phone');
+    toast('Staff added — tap “Login link” to send them a sign-in link');
     state.reload();
   });
   const remove = useAction(async (userId: string) => {
     await client.post(`/api/owner/properties/${propertyId}/staff/${userId}/deactivate`);
     state.reload();
+  });
+  const sendLink = useAction(async (userId: string) => {
+    // Open WhatsApp first so the browser doesn't block the new tab.
+    const win = window.open('', '_blank');
+    const r = await client.post<{ url: string; name: string; phone: string; expiresAt: string }>(`/api/owner/properties/${propertyId}/staff/${userId}/login-link`);
+    const text = `Hi ${r.name.split(' ')[0]}, open this link and tap "Continue with Google" to use the PGPAL staff app. It works once and expires on ${r.expiresAt.slice(0, 10)}:\n${r.url}`;
+    const wa = `https://wa.me/${r.phone.replace(/\D/g, '')}?text=${encodeURIComponent(text)}`;
+    if (win) win.location.href = wa;
+    else {
+      void navigator.clipboard?.writeText(text);
+      toast('Message copied — paste it in WhatsApp');
+    }
   });
   return (
     <Card ledger className="stack">
@@ -151,7 +169,14 @@ function StaffCard({ propertyId }: { propertyId: string }) {
             {d.items.map((s) => (
               <li key={s.userId} className="row between" style={{ padding: '8px 0' }}>
                 <span>{s.user.name} <span className="faint mono">{maskPhone(s.user.phone)}</span></span>
-                {s.status === 'ACTIVE' ? <Button small variant="ghost" onClick={() => void remove.run(s.userId)}>Remove</Button> : <StatusBadge status="INACTIVE" />}
+                {s.status === 'ACTIVE' ? (
+                  <span className="row" style={{ gap: 4 }}>
+                    <Button small variant="secondary" busy={sendLink.busy} onClick={() => void sendLink.run(s.userId)}>Login link</Button>
+                    <Button small variant="ghost" onClick={() => void remove.run(s.userId)}>Remove</Button>
+                  </span>
+                ) : (
+                  <StatusBadge status="INACTIVE" />
+                )}
               </li>
             ))}
           </ul>
@@ -161,7 +186,7 @@ function StaffCard({ propertyId }: { propertyId: string }) {
         <Input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
         <Input placeholder="Mobile number" inputMode="numeric" value={phone} onChange={(e) => setPhone(e.target.value)} />
       </div>
-      <Alert>{add.error || remove.error}</Alert>
+      <Alert>{add.error || remove.error || sendLink.error}</Alert>
       <Button variant="secondary" busy={add.busy} onClick={() => void add.run()}>Add staff</Button>
     </Card>
   );

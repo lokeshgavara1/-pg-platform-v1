@@ -21,6 +21,32 @@ export function parseRupees(input: string): number | null {
   return Number(whole) * 100 + Number(frac.padEnd(2, '0'));
 }
 
+export interface UpiDetails {
+  upiId: string;
+  payeeName: string;
+}
+
+/**
+ * Standard UPI payment link (NPCI "upi://pay"). On a phone it opens GPay / PhonePe / Paytm / BHIM
+ * with the payee, exact amount and a note filled in. Money goes straight to the owner — free.
+ */
+export function upiPayUri(upi: UpiDetails, amountPaise: number, note: string): string {
+  const rupees = `${Math.floor(amountPaise / 100)}.${String(amountPaise % 100).padStart(2, '0')}`;
+  const params = [
+    `pa=${upi.upiId}`, // UPI IDs only contain URL-safe characters; some apps reject an encoded "@"
+    `pn=${encodeURIComponent(upi.payeeName)}`,
+    `am=${rupees}`,
+    'cu=INR',
+    `tn=${encodeURIComponent(note.slice(0, 50))}`,
+  ];
+  return `upi://pay?${params.join('&')}`;
+}
+
+/** UPI app links only work on phones. */
+export function isPhone(): boolean {
+  return typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+}
+
 export function paiseToInput(paise: number): string {
   const r = Math.floor(paise / 100);
   const p = paise % 100;

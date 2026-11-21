@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ApiClient, memoryTokenStore } from './api';
 import { AuthProvider, useAuth } from './auth';
-import { formatINR, parseRupees, formatDate } from './format';
+import { formatINR, parseRupees, formatDate, upiPayUri } from './format';
 import { LoginScreen } from './LoginScreen';
 
 afterEach(cleanup);
@@ -19,6 +19,13 @@ describe('money formatting', () => {
     expect(parseRupees('1.234')).toBeNull();
     expect(parseRupees('abc')).toBeNull();
   });
+  it('builds a UPI payment link with the exact amount in rupees and paise', () => {
+    expect(upiPayUri({ upiId: 'ramesh.kumar@okaxis', payeeName: 'Ramesh Kumar' }, 850050, 'Rent Nov 2026 INV-1')).toBe(
+      'upi://pay?pa=ramesh.kumar@okaxis&pn=Ramesh%20Kumar&am=8500.50&cu=INR&tn=Rent%20Nov%202026%20INV-1',
+    );
+    expect(upiPayUri({ upiId: 'x@ybl', payeeName: 'X' }, 7, 'n')).toContain('am=0.07');
+  });
+
   it('formats date-only values without timezone drift', () => {
     expect(formatDate('2026-11-05T00:00:00.000Z')).toBe('5 Nov 2026');
   });
@@ -72,17 +79,43 @@ function renderLogin(app: 'owner' | 'tenant', role: string) {
 }
 
 async function doLogin() {
-  fireEvent.change(screen.getByLabelText('Mobile number'), { target: { value: '9876543210' } });
+  fireEvent.change(await screen.findByLabelText('Mobile number'), { target: { value: '9876543210' } });
   fireEvent.click(screen.getByText('Send OTP'));
   await screen.findByLabelText('OTP');
   fireEvent.change(screen.getByLabelText('OTP'), { target: { value: '123456' } });
   fireEvent.click(screen.getByText('Verify & continue'));
 }
 
+describe('LoginScreen development code box', () => {
+  async function renderWith(devOtp?: string) {
+    const fetchImpl = ((url: string) => (url.endsWith('/request-otp') ? json(200, { ok: true, expiresInSeconds: 300, ...(devOtp ? { devOtp } : {}) }) : json(404, {}))) as unknown as typeof fetch;
+    render(
+      <AuthProvider app="owner" client={new ApiClient('', memoryTokenStore(), fetchImpl)}>
+        <LoginScreen title="Owner" tagline="t" devHint={false} />
+      </AuthProvider>,
+    );
+    fireEvent.change(await screen.findByLabelText('Mobile number'), { target: { value: '9876543210' } });
+    fireEvent.click(screen.getByText('Send OTP'));
+  }
+
+  it('shows the code and fills it with one tap when the backend sends it (local dev)', async () => {
+    await renderWith('482913');
+    expect((await screen.findByTestId('dev-otp')).textContent).toBe('482913');
+    fireEvent.click(screen.getByText('Use code'));
+    expect((screen.getByLabelText('OTP') as HTMLInputElement).value).toBe('482913');
+  });
+
+  it('shows nothing when the backend does not send a code (staging/production)', async () => {
+    await renderWith();
+    await screen.findByLabelText('OTP');
+    expect(screen.queryByTestId('dev-otp')).toBeNull();
+  });
+});
+
 describe('LoginScreen', () => {
   it('validates the phone number before sending', async () => {
     renderLogin('owner', 'OWNER');
-    fireEvent.change(screen.getByLabelText('Mobile number'), { target: { value: '12345' } });
+    fireEvent.change(await screen.findByLabelText('Mobile number'), { target: { value: '12345' } });
     fireEvent.click(screen.getByText('Send OTP'));
     expect(await screen.findByText('Enter a valid 10-digit mobile number')).toBeTruthy();
   });

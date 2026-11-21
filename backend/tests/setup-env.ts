@@ -9,3 +9,5 @@ process.env.STORAGE_DIR = './storage-test';
 process.env.PAYMENT_PROVIDER = 'fake';
 process.env.PUBLIC_BASE_URL = 'http://localhost:4000';
 process.env.JOBS_ENABLED = 'false';
+// Tests use a fake Google verifier; never call Google for real.
+process.env.FIREBASE_PROJECT_ID = '';

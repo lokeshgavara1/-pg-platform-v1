@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../lib/prisma.js';
-import { idParam, parse, phoneSchema } from '../../lib/http.js';
-import { notFound } from '../../lib/errors.js';
+import { idParam, paiseSchema, parse, phoneSchema } from '../../lib/http.js';
+import { conflict, notFound } from '../../lib/errors.js';
+import { payOptions, reportUpiPayment, UPI_REF_RE, withdrawUpiReport } from '../payments/upi.js';
 import { todayIST } from '../../lib/dates.js';
 import { me } from '../auth/middleware.js';
 import { ensureTenantProfile, tenantContext } from '../access.js';
@@ -110,9 +111,13 @@ tenantRouter.get('/invoices', async (req, res) => {
     where: { ...(await myInvoiceWhere(user.id)), ...(status === 'UNPAID' ? { status: { in: ['DUE', 'PARTIAL'] } } : { status: { not: 'VOID' } }) },
     orderBy: { dueDate: 'desc' },
     take: 100,
-    include: { lines: true, property: { select: { name: true } } },
+    include: {
+      lines: true,
+      property: { select: { name: true, upiId: true, upiPayeeName: true } },
+      payments: { where: { status: 'REPORTED' }, select: { id: true, amountPaise: true, upiRef: true, createdAt: true } },
+    },
   });
-  res.json({ items: rows });
+  res.json({ items: rows.map(({ property, payments, ...inv }) => ({ ...inv, property: { name: property.name }, payOptions: payOptions(property), pendingReports: payments })) });
 });
 
 tenantRouter.get('/invoices/:id', async (req, res) => {
@@ -120,18 +125,43 @@ tenantRouter.get('/invoices/:id', async (req, res) => {
   const { id } = parse(idParam, req.params);
   const inv = await prisma.invoice.findFirst({
     where: { id, ...(await myInvoiceWhere(user.id)) },
-    include: { lines: true, payments: { where: { status: 'SUCCESS' } }, property: { select: { name: true } } },
+    include: { lines: true, payments: { where: { status: { in: ['SUCCESS', 'REPORTED'] } } }, property: { select: { name: true, upiId: true, upiPayeeName: true } } },
   });
   if (!inv) throw notFound('Invoice');
-  res.json(inv);
+  const { property, ...rest } = inv;
+  res.json({ ...rest, property: { name: property.name }, payOptions: payOptions(property) });
 });
 
 tenantRouter.post('/invoices/:id/pay-link', async (req, res) => {
   const user = me(req);
   const { id } = parse(idParam, req.params);
-  const inv = await prisma.invoice.findFirst({ where: { id, ...(await myInvoiceWhere(user.id)) } });
+  const inv = await prisma.invoice.findFirst({ where: { id, ...(await myInvoiceWhere(user.id)) }, include: { property: true } });
   if (!inv) throw notFound('Invoice');
+  if (!payOptions(inv.property).gateway) throw conflict('Pay this PG directly by UPI instead');
   res.status(201).json(await createPaymentLink(id, { customerPhone: user.phone }));
+});
+
+/** "I've paid": the tenant paid the owner's UPI ID directly. The owner must confirm it. */
+tenantRouter.post('/invoices/:id/upi-report', async (req, res) => {
+  const { id } = parse(idParam, req.params);
+  const input = parse(
+    z.object({
+      amountPaise: paiseSchema.refine((v) => v > 0, 'Amount must be more than zero').optional(),
+      upiRef: z
+        .string()
+        .transform((s) => s.replace(/\s/g, ''))
+        .pipe(z.string().regex(UPI_REF_RE, 'The UPI reference number has 12 digits'))
+        .optional(),
+    }),
+    req.body ?? {},
+  );
+  const p = await reportUpiPayment(me(req), id, input);
+  res.status(201).json({ id: p.id, status: p.status, amountPaise: p.amountPaise, upiRef: p.upiRef });
+});
+
+tenantRouter.post('/payments/:id/withdraw', async (req, res) => {
+  const { id } = parse(idParam, req.params);
+  res.json(await withdrawUpiReport(me(req), id));
 });
 
 tenantRouter.get('/payments', async (req, res) => {

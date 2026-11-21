@@ -33,4 +33,6 @@ export interface Invoice {
   status: 'DUE' | 'PARTIAL' | 'PAID' | 'VOID';
   lines: { id: string; description: string; amountPaise: number }[];
   property: { name: string };
+  payOptions: { upi: { upiId: string; payeeName: string } | null; gateway: boolean };
+  pendingReports: { id: string; amountPaise: number; upiRef: string | null; createdAt: string }[];
 }

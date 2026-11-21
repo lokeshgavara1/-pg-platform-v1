@@ -1,5 +1,6 @@
 import { createHmac, randomInt, timingSafeEqual } from 'node:crypto';
 import { env } from '../../config/env.js';
+import { shouldExposeDevOtp } from '../../config/providerGuard.js';
 import { prisma } from '../../lib/prisma.js';
 import { badRequest, tooMany } from '../../lib/errors.js';
 import { limiters } from '../../lib/rateLimit.js';
@@ -22,7 +23,7 @@ export async function requestOtp(phone: string, ip: string) {
     data: { phone, codeHash: hashOtp(phone, code), expiresAt: new Date(Date.now() + OTP_TTL_MS), ip },
   });
   await sms().sendOtp(phone, code);
-  return { expiresInSeconds: OTP_TTL_MS / 1000 };
+  return { expiresInSeconds: OTP_TTL_MS / 1000, ...(shouldExposeDevOtp(env) ? { devOtp: code } : {}) };
 }
 
 /** Throws on invalid/expired/used code; consumes the code on success. */

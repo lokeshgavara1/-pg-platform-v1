@@ -12,6 +12,7 @@ import { createSimpleInvoice, generateInvoicesForTenancy } from '../invoices/eng
 import { createPaymentLink } from '../payments/service.js';
 import { createTenancy } from '../tenancies/service.js';
 import { push } from '../../providers/message.js';
+import { payOptions } from '../payments/upi.js';
 
 // ---- Tenant side ---------------------------------------------------------------------
 
@@ -35,6 +36,8 @@ tenantBookingsRouter.get('/pg/:code', async (req, res) => {
     depositMonths: p.depositMonths,
     reservationHoldHours: p.reservationHoldHours,
     minNoticeDays: p.minNoticeDays,
+    // true = the token is paid directly to the owner's UPI ID from the Pay screen (free).
+    payByUpi: !payOptions(p).gateway,
     rooms: p.rooms.map((r) => ({
       id: r.id,
       name: r.name,
@@ -101,9 +104,11 @@ tenantBookingsRouter.post('/bookings', async (req, res) => {
     return { booking: finalB, invoice: inv };
   });
 
-  const pay = invoice ? await createPaymentLink(invoice.id, { customerPhone: user.phone }) : null;
+  // With a UPI ID set, the tenant pays the token directly by UPI (free) from the Pay screen.
+  const options = payOptions(property);
+  const pay = invoice && options.gateway ? await createPaymentLink(invoice.id, { customerPhone: user.phone }) : null;
   await push({ userId: property.ownerId, title: 'New reservation', body: `${user.name} reserved bed ${bed.room.name}-${bed.label} at ${property.name}.` });
-  res.status(201).json({ booking, invoice, payment: pay });
+  res.status(201).json({ booking, invoice, payment: pay, payOptions: options });
 });
 
 tenantBookingsRouter.get('/bookings', async (req, res) => {
@@ -123,11 +128,12 @@ tenantBookingsRouter.get('/bookings', async (req, res) => {
 tenantBookingsRouter.post('/bookings/:id/pay-link', async (req, res) => {
   const user = me(req);
   const { id } = parse(idParam, req.params);
-  const b = await prisma.booking.findFirst({ where: { id, tenantUserId: user.id }, include: { invoices: { where: { kind: 'TOKEN' } } } });
+  const b = await prisma.booking.findFirst({ where: { id, tenantUserId: user.id }, include: { invoices: { where: { kind: 'TOKEN' } }, property: true } });
   if (!b) throw notFound('Booking');
   if (b.status !== 'RESERVED' || b.holdUntil < new Date()) throw conflict('This reservation can no longer be paid');
   const inv = b.invoices[0];
   if (!inv) throw conflict('No token is due for this booking');
+  if (!payOptions(b.property).gateway) throw conflict('Pay the token directly by UPI from the Pay screen');
   res.status(201).json(await createPaymentLink(inv.id, { customerPhone: user.phone }));
 });
 
@@ -194,7 +200,6 @@ ownerBookingsRouter.post('/bookings/:id/confirm', requireRole('OWNER'), async (r
       rentPaise: b.rentPaise,
       depositPaise: b.depositPaise,
       depositCollectedPaise: tokenTowardsDeposit,
-      cityCode: b.property.cityCode,
       ignoreBookingId: b.id,
     });
     await tx.booking.update({ where: { id: b.id }, data: { status: 'CONVERTED', tenancyId: t.id } });

@@ -24,7 +24,7 @@ Either party must give at least {{minNoticeDays}} days' notice before move-out t
 ## 5. House rules
 
 - The Resident will follow the PG's house rules, keep the premises clean, and not cause nuisance to other residents.
-- The Resident will provide valid identity documents for verification as required by local law.
+- The Resident will provide a valid identity document to the Owner at move-in.
 - Visitors and overnight guests are allowed only as per the PG's rules.
 
 ## 6. General

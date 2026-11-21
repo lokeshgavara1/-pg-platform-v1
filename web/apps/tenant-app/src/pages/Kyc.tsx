@@ -21,7 +21,7 @@ export function KycPage() {
   const state = useAsync(() => client.get<Kyc>('/api/tenant/kyc'), []);
   return (
     <>
-      <PageHead title="ID verification" sub="Your PG needs this for police verification. Documents are stored privately and only your owner can open them." />
+      <PageHead title="My ID & details" sub="Your PG keeps a copy of your ID on file. Documents are stored privately and only your owner can open them." />
       <Async state={state}>
         {(k) => (
           <div className="stack reveal">
@@ -116,7 +116,7 @@ function ProfileFields({ initial }: { initial: Profile }) {
     });
     return (
       <Card ledger className="stack">
-        <h3>Details for police verification</h3>
+        <h3>About me (optional)</h3>
         <Field label="Father’s name"><Input value={f.fatherName} onChange={set('fatherName')} /></Field>
         <Field label="Permanent (home) address"><Input value={f.permanentAddress} onChange={set('permanentAddress')} /></Field>
         <div className="grid cols-2">
